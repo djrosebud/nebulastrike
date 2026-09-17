@@ -44,8 +44,10 @@ import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
 import {
   OnSpaceShooterWaveChangedEvent,
   OnSpaceShooterVictoryEvent,
+  OnSpaceShooterEnemyKilledEvent,
   SpaceShooterWavePayload,
   SpaceShooterScorePayload,
+  SpaceShooterKillPayload,
 } from './SpaceShooterEvents';
 
 interface WaveDef {
@@ -54,13 +56,14 @@ interface WaveDef {
   speed: number;
   fireInterval: number;
   spawnInterval: number;
+  damage: number;
   boss: boolean;
 }
 
 const WAVES: WaveDef[] = [
-  {count: 6, hp: 1, speed: 8, fireInterval: 3.0, spawnInterval: 2.2, boss: false},
-  {count: 10, hp: 2, speed: 10, fireInterval: 2.4, spawnInterval: 1.6, boss: false},
-  {count: 1, hp: 40, speed: 4.5, fireInterval: 2.5, spawnInterval: 1.0, boss: true},
+  {count: 6, hp: 1, speed: 8, fireInterval: 3.0, spawnInterval: 2.2, damage: 10, boss: false},
+  {count: 10, hp: 2, speed: 10, fireInterval: 2.4, spawnInterval: 1.6, damage: 15, boss: false},
+  {count: 1, hp: 40, speed: 4.5, fireInterval: 2.5, spawnInterval: 1.0, damage: 20, boss: true},
 ];
 
 const BREATHER_SECONDS = 4;
@@ -69,6 +72,7 @@ const SPAWN_AHEAD_Z = -50;
 const SPAWN_RANGE_X = 12;
 const SPAWN_RANGE_Y = 8;
 const SPAWN_MIN_Y = 2;
+const POWERUP_DROP_CHANCE = 0.3;
 
 type SpawnerState = 'spawning' | 'breather' | 'done';
 
@@ -80,6 +84,21 @@ export class EnemySpawner extends Component {
 
   @property()
   enemyTemplate: Maybe<TemplateAsset> = null;
+
+  /** Powerup templates (assign in editor; Powerup.ts attached, kind set per template). */
+  @property()
+  powerupTripleTemplate: Maybe<TemplateAsset> = null;
+  @property()
+  powerupRapidTemplate: Maybe<TemplateAsset> = null;
+  @property()
+  powerupShieldTemplate: Maybe<TemplateAsset> = null;
+
+  /**
+   * Dedicated boss template (uses the nebula_boss model). Optional: when
+   * unset, the boss falls back to the enemy template scaled 3x.
+   */
+  @property()
+  bossTemplate: Maybe<TemplateAsset> = null;
 
   private waveIndex: number = -1;
   private spawnedThisWave: number = 0;
@@ -110,6 +129,31 @@ export class EnemySpawner extends Component {
   onPlayerCreate(payload: OnPlayerCreateEventPayload): void {
     if (!NetworkingService.get().isServerContext()) return;
     this.refreshPlayer();
+  }
+
+  /** 30% drop chance on kill; the boss always drops a SHIELD powerup. */
+  @subscribe(OnSpaceShooterEnemyKilledEvent, {execution: ExecuteOn.Everywhere})
+  onEnemyKilled(payload: SpaceShooterKillPayload): void {
+    if (!NetworkingService.get().isServerContext()) return;
+    let template: Maybe<TemplateAsset> = null;
+    if (payload.boss) {
+      template = this.powerupShieldTemplate;
+    } else if (Math.random() < POWERUP_DROP_CHANCE) {
+      const pool = [this.powerupTripleTemplate, this.powerupRapidTemplate, this.powerupShieldTemplate];
+      template = pool[Math.floor(Math.random() * pool.length)];
+    }
+    if (!template) return;
+    try {
+      void WorldService.get().spawnTemplate({
+        templateAsset: template,
+        networkMode: NetworkMode.Networked,
+        position: new Vec3(payload.posX, payload.posY, payload.posZ),
+        rotation: Quaternion.identity,
+      });
+      console.log('[EnemySpawner] Powerup dropped');
+    } catch (err) {
+      console.error('[EnemySpawner] Powerup spawn failed:', err);
+    }
   }
 
   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
@@ -229,10 +273,13 @@ export class EnemySpawner extends Component {
     const spawnPos = new Vec3(randomX, randomY, spawnZ);
     const dirToPlayer = playerPos.sub(spawnPos).normalize();
     const rotation = Quaternion.lookRotation(dirToPlayer, Vec3.up);
+    const useBossTemplate = wave.boss && this.bossTemplate != null;
+    const template: Maybe<TemplateAsset> = useBossTemplate ? this.bossTemplate : this.enemyTemplate;
+    if (!template) return;
 
     try {
       const entity = await WorldService.get().spawnTemplate({
-        templateAsset: this.enemyTemplate,
+        templateAsset: template,
         networkMode: NetworkMode.Networked,
         position: spawnPos,
         rotation: rotation,
@@ -247,13 +294,18 @@ export class EnemySpawner extends Component {
       const ctrl = entity.getComponent(EnemyShipController);
       if (wave.boss) {
         ctrl?.configureAsBoss();
-        const t = entity.getComponent(TransformComponent);
-        if (t) t.worldScale = new Vec3(BOSS_SCALE, BOSS_SCALE, BOSS_SCALE);
+        if (ctrl) ctrl.projectileDamage = wave.damage;
+        if (!useBossTemplate) {
+          // Legacy fallback: scale the drone template up 3x
+          const t = entity.getComponent(TransformComponent);
+          if (t) t.worldScale = new Vec3(BOSS_SCALE, BOSS_SCALE, BOSS_SCALE);
+        }
         console.log('[EnemySpawner] BOSS spawned!');
       } else if (ctrl) {
         ctrl.hitPoints = wave.hp;
         ctrl.moveSpeed = wave.speed;
         ctrl.fireInterval = wave.fireInterval;
+        ctrl.projectileDamage = wave.damage;
       }
       this.tracked.push(entity);
     } catch (err) {

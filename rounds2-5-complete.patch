@@ -1,0 +1,1576 @@
+From de709dd9b8a1fa2bcc8cb31374f4a810b386c092 Mon Sep 17 00:00:00 2001
+From: djrosebud <djrosebud@users.noreply.github.com>
+Date: Wed, 16 Sep 2026 22:33:22 -0700
+Subject: [PATCH] rounds2-5-complete
+
+---
+ Environment/Skybox/skybox.png                 |   4 +-
+ UI/SpaceShooterHUD.xaml                       | 101 ++++++++++----
+ nebula_boss/nebula_boss.fbx                   |   3 +
+ nebula_boss/texture.png                       |   3 +
+ nebula_drone/nebula_drone.fbx                 |   3 +
+ nebula_drone/texture.png                      |   3 +
+ nebula_fighter/nebula_fighter.fbx             |   3 +
+ nebula_fighter/texture.png                    |   3 +
+ nebula_powerups/powerup_rapid.fbx             |   3 +
+ nebula_powerups/powerup_shield.fbx            |   3 +
+ nebula_powerups/powerup_triple.fbx            |   3 +
+ nebula_powerups/texture.png                   |   3 +
+ scripts/Projectile/ProjectileEvents.ts        |  14 +-
+ scripts/Projectile/ProjectileShooter.ts       |  29 +++-
+ scripts/ShootAction.ts                        |  12 +-
+ scripts/ShootControlsBridge.ts                |  91 ++++++++++--
+ scripts/SpaceShooter/EnemyProjectile.ts       |   9 +-
+ scripts/SpaceShooter/EnemyShipController.ts   |  65 +++++++--
+ scripts/SpaceShooter/EnemySpawner.ts          |  64 ++++++++-
+ scripts/SpaceShooter/Powerup.ts               | 129 +++++++++++++++++
+ scripts/SpaceShooter/SpaceShipController.ts   | 130 +++++++++++++++++-
+ .../SpaceShooterDamageReceiver.ts             |  89 +++++++++++-
+ scripts/SpaceShooter/SpaceShooterEvents.ts    |  54 ++++++++
+ .../SpaceShooter/SpaceShooterHUDController.ts | 105 +++++++++++++-
+ 24 files changed, 847 insertions(+), 79 deletions(-)
+ create mode 100644 nebula_boss/nebula_boss.fbx
+ create mode 100644 nebula_boss/texture.png
+ create mode 100644 nebula_drone/nebula_drone.fbx
+ create mode 100644 nebula_drone/texture.png
+ create mode 100644 nebula_fighter/nebula_fighter.fbx
+ create mode 100644 nebula_fighter/texture.png
+ create mode 100644 nebula_powerups/powerup_rapid.fbx
+ create mode 100644 nebula_powerups/powerup_shield.fbx
+ create mode 100644 nebula_powerups/powerup_triple.fbx
+ create mode 100644 nebula_powerups/texture.png
+ create mode 100644 scripts/SpaceShooter/Powerup.ts
+
+diff --git a/Environment/Skybox/skybox.png b/Environment/Skybox/skybox.png
+index cd76b12..adeb843 100644
+--- a/Environment/Skybox/skybox.png
++++ b/Environment/Skybox/skybox.png
+@@ -1,3 +1,3 @@
+ version https://git-lfs.github.com/spec/v1
+-oid sha256:a03b4fd39e7c992207330352fc0befefe8a1cc2888a3e6bac732ce40f956bc3e
+-size 5965173
++oid sha256:d8ee4fe93ac065b029280f79711c6ca0df9d91ce18d75f5674623cbc74ac5fc0
++size 3379816
+diff --git a/UI/SpaceShooterHUD.xaml b/UI/SpaceShooterHUD.xaml
+index 9ec35d9..0f20191 100644
+--- a/UI/SpaceShooterHUD.xaml
++++ b/UI/SpaceShooterHUD.xaml
+@@ -5,7 +5,11 @@
+ 
+   Shows:
+   - Score (top-center, cyan on dark semi-transparent)
++  - Mission timer + active powerup (below score)
+   - Health bar (top-right, green bar on dark background)
++  - Shield bar (below health, blue)
++  - Wave counter (top-left)
++  - Hit-flash (fullscreen red fade on damage)
+ 
+   Sci-fi font: Teko. FontSize >= 44.
+ -->
+@@ -22,6 +26,10 @@
+     <Grid>
+       <Grid x:Name="ContentContainer" Margin="{Binding safeAreaMargin}">
+ 
++        <!-- Hit-flash overlay (fullscreen red fade on damage) -->
++        <Border Background="#CCFF2222" Opacity="{Binding hitFlashOpacity}"
++                IsHitTestVisible="False"/>
++
+         <!-- Top HUD bar -->
+         <Grid VerticalAlignment="Top" Margin="0,420,0,0" Height="80">
+           <Grid.ColumnDefinitions>
+@@ -30,38 +38,79 @@
+             <ColumnDefinition Width="*"/>
+           </Grid.ColumnDefinitions>
+ 
+-          <!-- Score (center) -->
+-          <Border Grid.Column="1" Background="#99000000" CornerRadius="12"
+-                  Padding="30,8,30,8" HorizontalAlignment="Center" VerticalAlignment="Center">
+-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+-              <TextBlock Text="SCORE: " Foreground="#FF00DDFF" FontFamily="Teko"
+-                         FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
+-              <TextBlock Text="{Binding scoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+-                         FontSize="52" FontWeight="Bold" VerticalAlignment="Center"/>
+-            </StackPanel>
++          <!-- Wave counter (left) -->
++          <Border Grid.Column="0" Background="#99000000" CornerRadius="12"
++                  Padding="20,8,20,8" HorizontalAlignment="Left" VerticalAlignment="Center"
++                  Margin="30,0,0,0">
++            <TextBlock Text="{Binding waveText}" Foreground="#FFFFE619" FontFamily="Teko"
++                       FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
+           </Border>
+ 
+-          <!-- Health (right) -->
++          <!-- Score (center) -->
++          <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
++            <Border Background="#99000000" CornerRadius="12"
++                    Padding="30,8,30,8" HorizontalAlignment="Center">
++              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
++                <TextBlock Text="SCORE: " Foreground="#FF00DDFF" FontFamily="Teko"
++                           FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
++                <TextBlock Text="{Binding scoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
++                           FontSize="52" FontWeight="Bold" VerticalAlignment="Center"/>
++              </StackPanel>
++            </Border>
++            <!-- Mission timer + active powerup -->
++            <Border Background="#99000000" CornerRadius="12"
++                    Padding="20,4,20,4" HorizontalAlignment="Center" Margin="0,8,0,0">
++              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
++                <TextBlock Text="{Binding timerText}" Foreground="#FFFFFFFF" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
++                <TextBlock Text="{Binding powerupText}" Foreground="#FF7CFF00" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
++                           Margin="16,0,0,0"/>
++              </StackPanel>
++            </Border>
++          </StackPanel>
++
++          <!-- Health + shield (right) -->
+           <Border Grid.Column="2" Background="#99000000" CornerRadius="12"
+                   Padding="20,8,20,8" HorizontalAlignment="Right" VerticalAlignment="Center"
+                   Margin="0,0,30,0">
+-            <StackPanel Orientation="Horizontal">
+-              <TextBlock Text="HP " Foreground="#FF00DDFF" FontFamily="Teko"
+-                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
+-              <!-- Health bar background -->
+-              <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
+-                      VerticalAlignment="Center">
+-                <!-- Health bar fill -->
+-                <Border HorizontalAlignment="Left" CornerRadius="6"
+-                        Width="{Binding healthBarWidth}" Height="24">
+-                  <Border.Background>
+-                    <SolidColorBrush Color="{Binding healthBarColor}"/>
+-                  </Border.Background>
++            <StackPanel>
++              <StackPanel Orientation="Horizontal">
++                <TextBlock Text="HP " Foreground="#FF00DDFF" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
++                <!-- Health bar background -->
++                <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
++                        VerticalAlignment="Center">
++                  <!-- Health bar fill -->
++                  <Border HorizontalAlignment="Left" CornerRadius="6"
++                          Width="{Binding healthBarWidth}" Height="24">
++                    <Border.Background>
++                      <SolidColorBrush Color="{Binding healthBarColor}"/>
++                    </Border.Background>
++                  </Border>
++                </Border>
++                <TextBlock Text="{Binding healthText}" Foreground="#FFFFFFFF" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
++                           Margin="10,0,0,0"/>
++              </StackPanel>
++              <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
++                <TextBlock Text="SH " Foreground="#FF33CCFF" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
++                <!-- Shield bar background -->
++                <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
++                        VerticalAlignment="Center">
++                  <!-- Shield bar fill -->
++                  <Border HorizontalAlignment="Left" CornerRadius="6"
++                          Width="{Binding shieldBarWidth}" Height="24">
++                    <Border.Background>
++                      <SolidColorBrush Color="{Binding shieldBarColor}"/>
++                    </Border.Background>
++                  </Border>
+                 </Border>
+-              </Border>
+-              <TextBlock Text="{Binding healthText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+-                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
+-                         Margin="10,0,0,0"/>
++                <TextBlock Text="{Binding shieldText}" Foreground="#FFFFFFFF" FontFamily="Teko"
++                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
++                           Margin="10,0,0,0"/>
++              </StackPanel>
+             </StackPanel>
+           </Border>
+         </Grid>
+diff --git a/nebula_boss/nebula_boss.fbx b/nebula_boss/nebula_boss.fbx
+new file mode 100644
+index 0000000..9a5b965
+--- /dev/null
++++ b/nebula_boss/nebula_boss.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:a9327f71f6e5e59a631406d77816773fb2ddb5c74b07e958335b5f717bddaff0
++size 81468
+diff --git a/nebula_boss/texture.png b/nebula_boss/texture.png
+new file mode 100644
+index 0000000..b1e19f8
+--- /dev/null
++++ b/nebula_boss/texture.png
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:1d95cafd28144726a3326a492d39822c3ab3edff5701d7ed236433fdaa336ec2
++size 75631
+diff --git a/nebula_drone/nebula_drone.fbx b/nebula_drone/nebula_drone.fbx
+new file mode 100644
+index 0000000..12bca30
+--- /dev/null
++++ b/nebula_drone/nebula_drone.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:a32d372ae4e2a4e810673d48c453a39d171307dd8467a8a3afbc4492efa64215
++size 93500
+diff --git a/nebula_drone/texture.png b/nebula_drone/texture.png
+new file mode 100644
+index 0000000..082eed8
+--- /dev/null
++++ b/nebula_drone/texture.png
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:7d21ac857f3ded88d276d0853342448b74f6c69084f8cbd6983bc8ef5a326ae9
++size 94718
+diff --git a/nebula_fighter/nebula_fighter.fbx b/nebula_fighter/nebula_fighter.fbx
+new file mode 100644
+index 0000000..e673398
+--- /dev/null
++++ b/nebula_fighter/nebula_fighter.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:c1c40d98f38f241c7a412babf2e4af453df1fe884a35dc0476d60ceee590ac89
++size 96252
+diff --git a/nebula_fighter/texture.png b/nebula_fighter/texture.png
+new file mode 100644
+index 0000000..f9bdca5
+--- /dev/null
++++ b/nebula_fighter/texture.png
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:86ca5ee3a802a693465d58cda1e78823737073435a00f4a813e74c7c07ce3af1
++size 119649
+diff --git a/nebula_powerups/powerup_rapid.fbx b/nebula_powerups/powerup_rapid.fbx
+new file mode 100644
+index 0000000..517684f
+--- /dev/null
++++ b/nebula_powerups/powerup_rapid.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:35c39e7a5d27f4f42b520f55344755565701cf4e9190bbf2fc3b8f90075d5c0b
++size 30924
+diff --git a/nebula_powerups/powerup_shield.fbx b/nebula_powerups/powerup_shield.fbx
+new file mode 100644
+index 0000000..459bd1a
+--- /dev/null
++++ b/nebula_powerups/powerup_shield.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:dffe0d6696f58eb191994fa750223223ae071f98d92b0b86d83fb7f315e31dc6
++size 30924
+diff --git a/nebula_powerups/powerup_triple.fbx b/nebula_powerups/powerup_triple.fbx
+new file mode 100644
+index 0000000..bd1d799
+--- /dev/null
++++ b/nebula_powerups/powerup_triple.fbx
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:470244e5bd73c51163b19ffa8d2e683cd1c6d6bf8c52d613cdf515dc2ec23e96
++size 30924
+diff --git a/nebula_powerups/texture.png b/nebula_powerups/texture.png
+new file mode 100644
+index 0000000..05a9934
+--- /dev/null
++++ b/nebula_powerups/texture.png
+@@ -0,0 +1,3 @@
++version https://git-lfs.github.com/spec/v1
++oid sha256:59d972c820b0e5107a1109219f2823026a635cb387fabb438234905726e13aac
++size 105149
+diff --git a/scripts/Projectile/ProjectileEvents.ts b/scripts/Projectile/ProjectileEvents.ts
+index 57c1221..2c96ef1 100644
+--- a/scripts/Projectile/ProjectileEvents.ts
++++ b/scripts/Projectile/ProjectileEvents.ts
+@@ -32,13 +32,23 @@ export class RequestShootPayload {
+   @property()
+   public readonly aimDirectionZ: number;
+ 
++  /** 3-way spread pellet count for the TRIPLE powerup. */
++  @property()
++  public readonly pelletCount: number;
++
++  /** Faster server cooldown for the RAPID powerup. */
++  @property()
++  public readonly rapidFire: boolean;
++
+   constructor(
+     spawnPositionX: number = 0,
+     spawnPositionY: number = 0,
+     spawnPositionZ: number = 0,
+     aimDirectionX: number = 0,
+     aimDirectionY: number = 0,
+-    aimDirectionZ: number = -1
++    aimDirectionZ: number = -1,
++    pelletCount: number = 1,
++    rapidFire: boolean = false
+   ) {
+     this.spawnPositionX = spawnPositionX;
+     this.spawnPositionY = spawnPositionY;
+@@ -46,6 +56,8 @@ export class RequestShootPayload {
+     this.aimDirectionX = aimDirectionX;
+     this.aimDirectionY = aimDirectionY;
+     this.aimDirectionZ = aimDirectionZ;
++    this.pelletCount = pelletCount;
++    this.rapidFire = rapidFire;
+   }
+ }
+ 
+diff --git a/scripts/Projectile/ProjectileShooter.ts b/scripts/Projectile/ProjectileShooter.ts
+index 51402cf..6ab3b36 100644
+--- a/scripts/Projectile/ProjectileShooter.ts
++++ b/scripts/Projectile/ProjectileShooter.ts
+@@ -110,9 +110,10 @@ export class ProjectileShooter extends Component {
+ 
+     console.log('[ProjectileShooter] Server processing spawn request');
+ 
+-    // Check fire rate cooldown
++    // Check fire rate cooldown (RAPID powerup shortens it)
+     const currentTime = WorldService.get().getWorldTime();
+-    if (currentTime - this.lastShootTime < this.fireRate) {
++    const cooldown = payload.rapidFire ? 0.09 : this.fireRate;
++    if (currentTime - this.lastShootTime < cooldown) {
+       console.log('[ProjectileShooter] Fire rate cooldown - ignoring shot');
+       return;
+     }
+@@ -138,13 +139,27 @@ export class ProjectileShooter extends Component {
+       payload.aimDirectionZ,
+     ).normalize();
+ 
+-    // Calculate rotation from aim direction
+-    const rotation = Quaternion.lookRotation(aimDirection, Vec3.up);
++    const pelletCount = Math.max(1, Math.min(5, Math.floor(payload.pelletCount) || 1));
++    console.log(`[ProjectileShooter] Spawning ${pelletCount} projectile(s) at (${spawnPosition.x.toFixed(2)}, ${spawnPosition.y.toFixed(2)}, ${spawnPosition.z.toFixed(2)})`);
+ 
+-    console.log(`[ProjectileShooter] Spawning projectile at (${spawnPosition.x.toFixed(2)}, ${spawnPosition.y.toFixed(2)}, ${spawnPosition.z.toFixed(2)})`);
++    // Spawn projectiles on server (async — must await before getComponent)
++    for (let i = 0; i < pelletCount; i++) {
++      const spreadAngle = (i - (pelletCount - 1) / 2) * 0.18; // ~10 deg yaw per step
++      const dir = this.yawRotate(aimDirection, spreadAngle);
++      const rotation = Quaternion.lookRotation(dir, Vec3.up);
++      this.spawnProjectile(spawnPosition, rotation);
++    }
++  }
+ 
+-    // Spawn projectile on server (async — must await before getComponent)
+-    this.spawnProjectile(spawnPosition, rotation);
++  /** Rotate a direction vector around world Y (for 3-way spread). */
++  private yawRotate(dir: Vec3, angle: number): Vec3 {
++    const c = Math.cos(angle);
++    const s = Math.sin(angle);
++    return new Vec3(
++      dir.x * c + dir.z * s,
++      dir.y,
++      -dir.x * s + dir.z * c,
++    ).normalize();
+   }
+ 
+   private async spawnProjectile(spawnPosition: Vec3, rotation: Quaternion): Promise<void> {
+diff --git a/scripts/ShootAction.ts b/scripts/ShootAction.ts
+index d9e1cf1..dfd75f7 100644
+--- a/scripts/ShootAction.ts
++++ b/scripts/ShootAction.ts
+@@ -66,7 +66,9 @@ export class ShootAction extends Component {
+   }
+ 
+   // Fire one shot. Call this from project glue on a `Shoot` input press.
+-  public fireShot(): void {
++  // Pass an explicit aim direction (e.g. from the twin-stick) to override the
++  // default forward aim. pelletCount/rapidFire carry powerup weapon modes.
++  public fireShot(aimDirectionOverride?: Vec3, pelletCount: number = 1, rapidFire: boolean = false): void {
+     // Only the owner can fire their weapon
+     if (!this.entity.isOwned()) {
+       return;
+@@ -101,8 +103,10 @@ export class ShootAction extends Component {
+       worldPos.z + worldOffset.z,
+     );
+ 
+-    // Get aim direction (entity's forward direction)
+-    const aimDirection = this.transform.worldForward;
++    // Get aim direction: explicit override (twin-stick) or entity forward.
++    const aimDirection = aimDirectionOverride != null
++      ? aimDirectionOverride.normalize()
++      : this.transform.worldForward;
+ 
+     // CRITICAL FIX: Use entity.sendEventToEveryone instead of this.sendEventToEveryone
+     // - this.sendEventToEveryone sends to SAME COMPONENT TYPE (ShootAction) on other replicants
+@@ -119,6 +123,8 @@ export class ShootAction extends Component {
+       aimDirection.x,
+       aimDirection.y,
+       aimDirection.z,
++      pelletCount,
++      rapidFire,
+     ));
+ 
+     console.log('[ShootAction] Event sent to server via entity.sendEventToEveryone');
+diff --git a/scripts/ShootControlsBridge.ts b/scripts/ShootControlsBridge.ts
+index eaf0cb9..0b1df5f 100644
+--- a/scripts/ShootControlsBridge.ts
++++ b/scripts/ShootControlsBridge.ts
+@@ -1,14 +1,21 @@
+ /**
+- * ShootControlsBridge — Bridges the on-screen 'Shoot' hold-button to
+- * ShootAction.fireShot() with a client-side fire interval.
++ * ShootControlsBridge — Bridges the on-screen 'Shoot' hold-button and the
++ * twin-stick aim to ShootAction.fireShot() with a client-side fire interval.
+  *
+  * Component Attachment: Player entity (alongside ShootAction)
+  * Component Networking: Local (runs on Owner only)
+  * Component Ownership: Player (client-owned)
+  *
+  * The Shoot button is hold (momentary=false): pressed=true while held,
+- * false on release. This bridge polls isPressed('Shoot') each frame and
+- * calls fireShot() on a cooldown so the player holds to auto-fire.
++ * false on release. Deflecting the aim stick (see SpaceShipController) also
++ * fires, twin-stick style. This bridge polls each frame and calls fireShot()
++ * with the current aim direction on a cooldown.
++ *
++ * Powerup weapon modes (from OnSpaceShooterPowerupCollectedEvent):
++ * - TRIPLE: 3-way spread for 12s
++ * - RAPID: fast fire for 12s
++ * - SHIELD: instantly restores 50 shield (handled here via DamageReceiver)
++ * Timer expiry returns to single shot.
+  */
+ 
+ import {
+@@ -24,21 +31,37 @@ import {
+ import type {Maybe, OnWorldUpdateEventPayload} from 'meta/worlds';
+ import {InputActionsManager} from './Input/InputActionsManager';
+ import {ShootAction} from './ShootAction';
++import {SpaceShipController} from './SpaceShooter/SpaceShipController';
++import {SpaceShooterDamageReceiver} from './SpaceShooter/SpaceShooterDamageReceiver';
++import {
++  OnSpaceShooterPowerupCollectedEvent,
++  OnSpaceShooterWaveChangedEvent,
++  SpaceShooterPowerupPayload,
++  SpaceShooterWavePayload,
++} from './SpaceShooter/SpaceShooterEvents';
+ 
+ const FIRE_INTERVAL = 0.2; // seconds between shots while held
++const RAPID_FIRE_INTERVAL = 0.09;
++const WEAPON_DURATION = 12; // powerup weapon mode seconds
++
++export type WeaponMode = 'single' | 'triple' | 'rapid';
+ 
+ @component({
+   description:
+-    'Fires ShootAction on a cooldown while the Shoot button is held. Attach to player entity alongside ShootAction.',
++    'Fires ShootAction toward the twin-stick aim on a cooldown while the Shoot button is held or the aim stick is deflected. Handles TRIPLE/RAPID/SHIELD powerup modes. Attach to player entity alongside ShootAction.',
+ })
+ export class ShootControlsBridge extends Component {
+   private shootAction: Maybe<ShootAction> = null;
++  private ship: Maybe<SpaceShipController> = null;
+   private lastFireTime: number = 0;
+   private wired: boolean = false;
++  private weaponMode: WeaponMode = 'single';
++  private weaponTimeLeft: number = 0;
+ 
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Owner})
+   onStart(): void {
+     this.shootAction = this.entity.getComponent(ShootAction);
++    this.ship = this.entity.getComponent(SpaceShipController);
+     this.wire();
+   }
+ 
+@@ -48,25 +71,76 @@ export class ShootControlsBridge extends Component {
+       this.wire();
+     }
+ 
++    // Powerup timer expiry returns to single shot
++    if (this.weaponMode !== 'single') {
++      this.weaponTimeLeft -= payload.deltaTime;
++      if (this.weaponTimeLeft <= 0) {
++        this.weaponMode = 'single';
++        this.weaponTimeLeft = 0;
++        console.log('[ShootControlsBridge] Powerup expired — back to single shot');
++      }
++    }
++
+     const manager = InputActionsManager.instance;
+     if (!manager || !this.shootAction) {
+       return;
+     }
+ 
+-    if (manager.isPressed('Shoot')) {
++    const firing = manager.isPressed('Shoot') || (this.ship?.isAimFiring() ?? false);
++    if (firing) {
+       const now = WorldService.get().getWorldTime();
+-      if (now - this.lastFireTime >= FIRE_INTERVAL) {
+-        this.shootAction.fireShot();
++      const interval = this.weaponMode === 'rapid' ? RAPID_FIRE_INTERVAL : FIRE_INTERVAL;
++      if (now - this.lastFireTime >= interval) {
++        this.shootAction.fireShot(
++          this.ship?.getAimDirection(),
++          this.weaponMode === 'triple' ? 3 : 1,
++          this.weaponMode === 'rapid',
++        );
+         this.lastFireTime = now;
+       }
+     }
+   }
+ 
++  @subscribe(OnSpaceShooterPowerupCollectedEvent, {execution: ExecuteOn.Owner})
++  onPowerup(payload: SpaceShooterPowerupPayload): void {
++    const kind = payload.kind;
++    if (kind === 'shield') {
++      const receiver = this.entity.getComponent(SpaceShooterDamageReceiver);
++      if (receiver) {
++        receiver.restoreShield(50);
++        console.log('[ShootControlsBridge] SHIELD powerup: +50 shield');
++      }
++      return;
++    }
++    if (kind === 'triple' || kind === 'rapid') {
++      this.weaponMode = kind;
++      this.weaponTimeLeft = WEAPON_DURATION;
++      console.log(`[ShootControlsBridge] ${kind.toUpperCase()} powerup active for ${WEAPON_DURATION}s`);
++    }
++  }
++
+   @subscribe(OnEntityDestroyEvent, {execution: ExecuteOn.Owner})
+   onDestroy(): void {
+     this.wired = false;
+   }
+ 
++  /** New run (wave 1 also fires on restart): drop any powerup weapon mode. */
++  @subscribe(OnSpaceShooterWaveChangedEvent, {execution: ExecuteOn.Owner})
++  onWaveChanged(payload: SpaceShooterWavePayload): void {
++    if (payload.wave === 1) {
++      this.weaponMode = 'single';
++      this.weaponTimeLeft = 0;
++    }
++  }
++
++  public getWeaponMode(): WeaponMode {
++    return this.weaponMode;
++  }
++
++  public getWeaponTimeLeft(): number {
++    return Math.max(0, this.weaponTimeLeft);
++  }
++
+   private wire(): void {
+     if (this.wired) {
+       return;
+@@ -75,6 +149,7 @@ export class ShootControlsBridge extends Component {
+       return;
+     }
+     this.shootAction = this.entity.getComponent(ShootAction);
++    this.ship = this.entity.getComponent(SpaceShipController);
+     if (this.shootAction) {
+       this.wired = true;
+       console.log('[ShootControlsBridge] Wired to ShootAction');
+diff --git a/scripts/SpaceShooter/EnemyProjectile.ts b/scripts/SpaceShooter/EnemyProjectile.ts
+index d4846ae..af500d8 100644
+--- a/scripts/SpaceShooter/EnemyProjectile.ts
++++ b/scripts/SpaceShooter/EnemyProjectile.ts
+@@ -16,12 +16,19 @@ const ENEMY_PROJECTILE_DAMAGE = 15;
+   description: 'Enemy projectile that deals damage to the player on hit.',
+ })
+ export class EnemyProjectile extends Projectile {
++  private damage: number = ENEMY_PROJECTILE_DAMAGE;
++
++  /** Per-wave tuning, set by EnemyShipController right after spawn. */
++  public setDamage(damage: number): void {
++    this.damage = damage;
++  }
++
+   protected override onHit(hitEntity: Entity, position: Vec3, normal: Vec3): void {
+     let current: Entity | null = hitEntity;
+     while (current) {
+       const receiver = current.getComponent(SpaceShooterDamageReceiver);
+       if (receiver) {
+-        receiver.receiveDamage(ENEMY_PROJECTILE_DAMAGE);
++        receiver.receiveDamage(this.damage);
+         console.log('[EnemyProjectile] Hit player! Dealing damage.');
+         return;
+       }
+diff --git a/scripts/SpaceShooter/EnemyShipController.ts b/scripts/SpaceShooter/EnemyShipController.ts
+index 85a025b..403ddb2 100644
+--- a/scripts/SpaceShooter/EnemyShipController.ts
++++ b/scripts/SpaceShooter/EnemyShipController.ts
+@@ -41,6 +41,11 @@ import type {
+ import {Bullet} from '../Projectile/Bullet';
+ import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
+ import {SpaceShooterDamageReceiver} from './SpaceShooterDamageReceiver';
++import {EnemyProjectile} from './EnemyProjectile';
++import {
++  OnSpaceShooterEnemyKilledEvent,
++  SpaceShooterKillPayload,
++} from './SpaceShooterEvents';
+ 
+ const DAMAGE_TO_PLAYER = 20;
+ const DESPAWN_DISTANCE = 30;
+@@ -49,6 +54,7 @@ const BOSS_SPEED = 4.5;
+ const BOSS_FIRE_INTERVAL = 2.5;
+ const BOSS_RADIAL_COUNT = 12;
+ const BOSS_SCORE = 1000;
++const DEATH_POP_TIME = 0.28;
+ 
+ @component({
+   description: 'Enemy ship AI. Attach to enemy ship template root.',
+@@ -71,10 +77,16 @@ export class EnemyShipController extends Component {
+   @property()
+   driftFrequency: number = 1.5;
+ 
++  /** Per-wave projectile damage, tuned by EnemySpawner right after spawn. */
++  @property()
++  projectileDamage: number = 15;
++
+   private transform: Maybe<TransformComponent> = null;
+   private playerEntity: Maybe<Entity> = null;
+   private lastFireTime: number = 0;
+   private destroyed: boolean = false;
++  private dying: boolean = false;
++  private deathT: number = 0;
+   private driftPhase: number = 0;
+   private isBoss: boolean = false;
+   private radialCount: number = 0;
+@@ -110,7 +122,24 @@ export class EnemyShipController extends Component {
+   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
+   onUpdate(payload: OnWorldUpdateEventPayload): void {
+     if (!NetworkingService.get().isServerContext()) return;
+-    if (!this.transform || this.destroyed) return;
++    if (!this.transform) return;
++
++    const dt = payload.deltaTime;
++
++    // Death pop: scale up and rise briefly, then destroy
++    if (this.dying) {
++      this.deathT += dt;
++      const t = Math.min(1, this.deathT / DEATH_POP_TIME);
++      const s = 1 + t * 1.4;
++      this.transform.worldScale = new Vec3(s, s, s);
++      const pos = this.transform.worldPosition;
++      this.transform.worldPosition = new Vec3(pos.x, pos.y + dt * 3, pos.z);
++      if (this.deathT >= DEATH_POP_TIME) {
++        this.entity.destroy();
++      }
++      return;
++    }
++    if (this.destroyed) return;
+ 
+     // Re-find player if lost
+     if (!this.playerEntity || this.playerEntity.isDestroyed()) {
+@@ -122,7 +151,6 @@ export class EnemyShipController extends Component {
+     const playerTransform = this.playerEntity.getComponent(TransformComponent);
+     if (!playerTransform) return;
+ 
+-    const dt = payload.deltaTime;
+     const pos = this.transform.worldPosition;
+     const playerPos = playerTransform.worldPosition;
+ 
+@@ -183,12 +211,7 @@ export class EnemyShipController extends Component {
+     if (this.findInChain(otherEntity, (e) => e.getComponent(Bullet) != null)) {
+       this.hitPoints -= 1;
+       if (this.hitPoints <= 0) {
+-        console.log(
+-          `[EnemyShipController] ${this.isBoss ? 'BOSS' : 'Drone'} destroyed! +${this.scoreValue}`,
+-        );
+-        this.destroyed = true;
+-        SpaceShooterScoreManager.instance?.addScore(this.scoreValue);
+-        this.entity.destroy();
++        this.startDeathPop();
+       } else {
+         console.log(
+           `[EnemyShipController] Hit! HP remaining: ${this.hitPoints}`,
+@@ -203,12 +226,28 @@ export class EnemyShipController extends Component {
+       this.dealDamageToPlayer(otherEntity);
+       // Drones die on ramming; the boss plows through
+       if (!this.isBoss) {
+-        this.destroyed = true;
+-        this.entity.destroy();
++        this.startDeathPop();
+       }
+     }
+   }
+ 
++  /** Score + kill event + death-pop animation (destroy deferred). */
++  private startDeathPop(): void {
++    if (this.dying) return;
++    this.dying = true;
++    this.destroyed = true;
++    this.deathT = 0;
++    console.log(
++      `[EnemyShipController] ${this.isBoss ? 'BOSS' : 'Drone'} destroyed! +${this.scoreValue}`,
++    );
++    SpaceShooterScoreManager.instance?.addScore(this.scoreValue);
++    const pos = this.transform?.worldPosition ?? new Vec3(0, 5, -10);
++    this.entity.sendEventToEveryone(
++      OnSpaceShooterEnemyKilledEvent,
++      new SpaceShooterKillPayload(pos.x, pos.y, pos.z, this.isBoss),
++    );
++  }
++
+   private async fireAtPlayer(playerPos: Vec3): Promise<void> {
+     if (!this.transform || !this.enemyProjectileTemplate) return;
+     const pos = this.transform.worldPosition;
+@@ -217,12 +256,13 @@ export class EnemyShipController extends Component {
+     const rotation = Quaternion.lookRotation(dirToPlayer, Vec3.up);
+ 
+     try {
+-      await WorldService.get().spawnTemplate({
++      const spawned = await WorldService.get().spawnTemplate({
+         templateAsset: this.enemyProjectileTemplate,
+         networkMode: NetworkMode.Networked,
+         position: spawnPos,
+         rotation: rotation,
+       });
++      spawned.getComponent(EnemyProjectile)?.setDamage(this.projectileDamage);
+     } catch (err) {
+       console.error('[EnemyShipController] Failed to spawn projectile:', err);
+     }
+@@ -261,12 +301,13 @@ export class EnemyShipController extends Component {
+       const spawnPos = pos.add(d.mul(4));
+       const rotation = Quaternion.lookRotation(d, Vec3.up);
+       try {
+-        await WorldService.get().spawnTemplate({
++        const spawned = await WorldService.get().spawnTemplate({
+           templateAsset: this.enemyProjectileTemplate,
+           networkMode: NetworkMode.Networked,
+           position: spawnPos,
+           rotation: rotation,
+         });
++        spawned.getComponent(EnemyProjectile)?.setDamage(this.projectileDamage);
+       } catch (err) {
+         console.error('[EnemyShipController] Boss radial fire failed:', err);
+         return;
+diff --git a/scripts/SpaceShooter/EnemySpawner.ts b/scripts/SpaceShooter/EnemySpawner.ts
+index 6fc5fd5..c503094 100644
+--- a/scripts/SpaceShooter/EnemySpawner.ts
++++ b/scripts/SpaceShooter/EnemySpawner.ts
+@@ -44,8 +44,10 @@ import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
+ import {
+   OnSpaceShooterWaveChangedEvent,
+   OnSpaceShooterVictoryEvent,
++  OnSpaceShooterEnemyKilledEvent,
+   SpaceShooterWavePayload,
+   SpaceShooterScorePayload,
++  SpaceShooterKillPayload,
+ } from './SpaceShooterEvents';
+ 
+ interface WaveDef {
+@@ -54,13 +56,14 @@ interface WaveDef {
+   speed: number;
+   fireInterval: number;
+   spawnInterval: number;
++  damage: number;
+   boss: boolean;
+ }
+ 
+ const WAVES: WaveDef[] = [
+-  {count: 6, hp: 1, speed: 8, fireInterval: 3.0, spawnInterval: 2.2, boss: false},
+-  {count: 10, hp: 2, speed: 10, fireInterval: 2.4, spawnInterval: 1.6, boss: false},
+-  {count: 1, hp: 40, speed: 4.5, fireInterval: 2.5, spawnInterval: 1.0, boss: true},
++  {count: 6, hp: 1, speed: 8, fireInterval: 3.0, spawnInterval: 2.2, damage: 10, boss: false},
++  {count: 10, hp: 2, speed: 10, fireInterval: 2.4, spawnInterval: 1.6, damage: 15, boss: false},
++  {count: 1, hp: 40, speed: 4.5, fireInterval: 2.5, spawnInterval: 1.0, damage: 20, boss: true},
+ ];
+ 
+ const BREATHER_SECONDS = 4;
+@@ -69,6 +72,7 @@ const SPAWN_AHEAD_Z = -50;
+ const SPAWN_RANGE_X = 12;
+ const SPAWN_RANGE_Y = 8;
+ const SPAWN_MIN_Y = 2;
++const POWERUP_DROP_CHANCE = 0.3;
+ 
+ type SpawnerState = 'spawning' | 'breather' | 'done';
+ 
+@@ -81,6 +85,21 @@ export class EnemySpawner extends Component {
+   @property()
+   enemyTemplate: Maybe<TemplateAsset> = null;
+ 
++  /** Powerup templates (assign in editor; Powerup.ts attached, kind set per template). */
++  @property()
++  powerupTripleTemplate: Maybe<TemplateAsset> = null;
++  @property()
++  powerupRapidTemplate: Maybe<TemplateAsset> = null;
++  @property()
++  powerupShieldTemplate: Maybe<TemplateAsset> = null;
++
++  /**
++   * Dedicated boss template (uses the nebula_boss model). Optional: when
++   * unset, the boss falls back to the enemy template scaled 3x.
++   */
++  @property()
++  bossTemplate: Maybe<TemplateAsset> = null;
++
+   private waveIndex: number = -1;
+   private spawnedThisWave: number = 0;
+   private pendingSpawns: number = 0;
+@@ -112,6 +131,31 @@ export class EnemySpawner extends Component {
+     this.refreshPlayer();
+   }
+ 
++  /** 30% drop chance on kill; the boss always drops a SHIELD powerup. */
++  @subscribe(OnSpaceShooterEnemyKilledEvent, {execution: ExecuteOn.Everywhere})
++  onEnemyKilled(payload: SpaceShooterKillPayload): void {
++    if (!NetworkingService.get().isServerContext()) return;
++    let template: Maybe<TemplateAsset> = null;
++    if (payload.boss) {
++      template = this.powerupShieldTemplate;
++    } else if (Math.random() < POWERUP_DROP_CHANCE) {
++      const pool = [this.powerupTripleTemplate, this.powerupRapidTemplate, this.powerupShieldTemplate];
++      template = pool[Math.floor(Math.random() * pool.length)];
++    }
++    if (!template) return;
++    try {
++      void WorldService.get().spawnTemplate({
++        templateAsset: template,
++        networkMode: NetworkMode.Networked,
++        position: new Vec3(payload.posX, payload.posY, payload.posZ),
++        rotation: Quaternion.identity,
++      });
++      console.log('[EnemySpawner] Powerup dropped');
++    } catch (err) {
++      console.error('[EnemySpawner] Powerup spawn failed:', err);
++    }
++  }
++
+   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
+   onUpdate(payload: OnWorldUpdateEventPayload): void {
+     if (!NetworkingService.get().isServerContext()) return;
+@@ -229,10 +273,13 @@ export class EnemySpawner extends Component {
+     const spawnPos = new Vec3(randomX, randomY, spawnZ);
+     const dirToPlayer = playerPos.sub(spawnPos).normalize();
+     const rotation = Quaternion.lookRotation(dirToPlayer, Vec3.up);
++    const useBossTemplate = wave.boss && this.bossTemplate != null;
++    const template: Maybe<TemplateAsset> = useBossTemplate ? this.bossTemplate : this.enemyTemplate;
++    if (!template) return;
+ 
+     try {
+       const entity = await WorldService.get().spawnTemplate({
+-        templateAsset: this.enemyTemplate,
++        templateAsset: template,
+         networkMode: NetworkMode.Networked,
+         position: spawnPos,
+         rotation: rotation,
+@@ -247,13 +294,18 @@ export class EnemySpawner extends Component {
+       const ctrl = entity.getComponent(EnemyShipController);
+       if (wave.boss) {
+         ctrl?.configureAsBoss();
+-        const t = entity.getComponent(TransformComponent);
+-        if (t) t.worldScale = new Vec3(BOSS_SCALE, BOSS_SCALE, BOSS_SCALE);
++        if (ctrl) ctrl.projectileDamage = wave.damage;
++        if (!useBossTemplate) {
++          // Legacy fallback: scale the drone template up 3x
++          const t = entity.getComponent(TransformComponent);
++          if (t) t.worldScale = new Vec3(BOSS_SCALE, BOSS_SCALE, BOSS_SCALE);
++        }
+         console.log('[EnemySpawner] BOSS spawned!');
+       } else if (ctrl) {
+         ctrl.hitPoints = wave.hp;
+         ctrl.moveSpeed = wave.speed;
+         ctrl.fireInterval = wave.fireInterval;
++        ctrl.projectileDamage = wave.damage;
+       }
+       this.tracked.push(entity);
+     } catch (err) {
+diff --git a/scripts/SpaceShooter/Powerup.ts b/scripts/SpaceShooter/Powerup.ts
+new file mode 100644
+index 0000000..9f44e1f
+--- /dev/null
++++ b/scripts/SpaceShooter/Powerup.ts
+@@ -0,0 +1,129 @@
++/**
++ * Powerup — Spinning octahedron pickup dropped by destroyed enemies.
++ *
++ * Component Attachment: Powerup template root entity (one template per kind,
++ * with the matching Blender octahedron mesh as its visual)
++ * Component Networking: Networked (spawned by the server)
++ * Component Ownership: Server
++ *
++ * Kinds: 'triple' (3-way shots, 12s), 'rapid' (fast fire, 12s),
++ * 'shield' (restore 50 shield). Set `kind` on the template in the editor.
++ *
++ * Spins and bobs until collected (player within radius) or its lifetime
++ * expires. Collection notifies the player's ShootControlsBridge via
++ * OnSpaceShooterPowerupCollectedEvent.
++ */
++
++import {
++  component,
++  Component,
++  property,
++  subscribe,
++  OnEntityStartEvent,
++  OnWorldUpdateEvent,
++  ExecuteOn,
++  TransformComponent,
++  Vec3,
++  Quaternion,
++  WorldService,
++  NetworkingService,
++  PlayerService,
++} from 'meta/worlds';
++import type {Maybe, Entity, OnWorldUpdateEventPayload} from 'meta/worlds';
++import {
++  OnSpaceShooterPowerupCollectedEvent,
++  SpaceShooterPowerupPayload,
++} from './SpaceShooterEvents';
++
++const LIFETIME_SEC = 18;
++const COLLECT_RADIUS = 2.5;
++const POP_TIME = 0.22;
++const SPIN_DEG_PER_SEC = 120;
++const BOB_AMPLITUDE = 0.4;
++const BOB_FREQUENCY = 2.5;
++
++@component({
++  description: "Spinning powerup pickup ('triple' | 'rapid' | 'shield'). Attach to powerup template root.",
++})
++export class Powerup extends Component {
++  /** 'triple' | 'rapid' | 'shield'. Set per-template in the editor. */
++  @property()
++  kind: string = 'triple';
++
++  private transform: Maybe<TransformComponent> = null;
++  private playerEntity: Maybe<Entity> = null;
++  private baseY: number = 0;
++  private age: number = 0;
++  private collected: boolean = false;
++  private popT: number = 0;
++
++  @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Everywhere})
++  onStart(): void {
++    if (!NetworkingService.get().isServerContext()) return;
++    this.transform = this.entity.getComponent(TransformComponent);
++    if (this.transform) {
++      this.baseY = this.transform.worldPosition.y;
++    }
++    const players = PlayerService.get().getAllPlayers();
++    this.playerEntity = players.length > 0 ? players[0] : null;
++    console.log(`[Powerup] Spawned kind=${this.kind}`);
++  }
++
++  @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
++  onUpdate(payload: OnWorldUpdateEventPayload): void {
++    if (!NetworkingService.get().isServerContext()) return;
++    if (!this.transform) return;
++
++    const dt = payload.deltaTime;
++
++    // Collect pop animation, then destroy
++    if (this.collected) {
++      this.popT += dt;
++      const s = 1 + (this.popT / POP_TIME) * 0.9;
++      this.transform.worldScale = new Vec3(s, s, s);
++      if (this.popT >= POP_TIME) {
++        this.entity.destroy();
++      }
++      return;
++    }
++
++    this.age += dt;
++    if (this.age >= LIFETIME_SEC) {
++      this.entity.destroy();
++      return;
++    }
++
++    // Spin + bob
++    this.transform.worldRotation = Quaternion.fromEuler(
++      0,
++      this.age * SPIN_DEG_PER_SEC,
++      0,
++    );
++    const pos = this.transform.worldPosition;
++    this.transform.worldPosition = new Vec3(
++      pos.x,
++      this.baseY + Math.sin(this.age * BOB_FREQUENCY) * BOB_AMPLITUDE,
++      pos.z,
++    );
++
++    // Re-find player if lost
++    if (!this.playerEntity || this.playerEntity.isDestroyed()) {
++      const players = PlayerService.get().getAllPlayers();
++      this.playerEntity = players.length > 0 ? players[0] : null;
++    }
++    if (!this.playerEntity) return;
++
++    const playerTransform = this.playerEntity.getComponent(TransformComponent);
++    if (!playerTransform) return;
++    const dist = playerTransform.worldPosition.sub(pos).magnitude();
++    if (dist < COLLECT_RADIUS) {
++      this.collected = true;
++      this.popT = 0;
++      console.log(`[Powerup] Collected kind=${this.kind}`);
++      this.playerEntity.sendEventToEveryone(
++        OnSpaceShooterPowerupCollectedEvent,
++        new SpaceShooterPowerupPayload(this.kind),
++      );
++    }
++  }
++}
+diff --git a/scripts/SpaceShooter/SpaceShipController.ts b/scripts/SpaceShooter/SpaceShipController.ts
+index 0c030f8..e50dacb 100644
+--- a/scripts/SpaceShooter/SpaceShipController.ts
++++ b/scripts/SpaceShooter/SpaceShipController.ts
+@@ -4,6 +4,12 @@
+  * Component Attachment: PlayerCharacter root entity
+  * Component Networking: Local (client-owned, runs on Owner)
+  * Component Ownership: Player (client-owned)
++ *
++ * Twin-stick: the left/bottom floating stick (TouchJoystick, 'Move' action) steers
++ * the ship; a second floating stick registered here on the complementary screen
++ * half drives aim. Deflecting the aim stick also fires (no separate fire button
++ * needed on touch). On desktop (no mouse-position API in this SDK), aim falls
++ * back to the movement direction, or straight forward when stationary.
+  */
+ 
+ import {
+@@ -15,6 +21,7 @@ import {
+   OnWorldUpdateEvent,
+   OnEntityDestroyEvent,
+   TransformComponent,
++  Vec2,
+   Vec3,
+   Quaternion,
+   NetworkingService,
+@@ -32,6 +39,7 @@ import {
+   InputActionsManager,
+   InputActionChangeEvent,
+ } from '../Input/InputActionsManager';
++import {TouchRouter, TouchHoldMode} from '../Input/TouchRouter';
+ 
+ const BOUND_X = 15;
+ const BOUND_Y = 10;
+@@ -40,19 +48,42 @@ const SHIP_SPEED = 12;
+ const BANK_ANGLE_DEG = 30;
+ const BANK_LERP_SPEED = 8;
+ 
++// Aim stick tuning (mirrors TouchJoystick): normalized screen units.
++const AIM_RADIUS = 0.12;
++const AIM_DEADZONE = 0.08;
++const AIM_FIRE_THRESHOLD = 0.3;
++// Nose yaw/pitch toward the aim stick, in degrees.
++const AIM_YAW_DEG = 25;
++const AIM_PITCH_DEG = 12;
++const AIM_NOSE_LERP_SPEED = 10;
++
+ @component({
+   description:
+     'Space ship flight controller. Overrides ground locomotion with free-flight X/Y plane movement. Attach to PlayerCharacter root.',
+ })
+ export class SpaceShipController extends Component {
++  /** false = portrait split (default), true = landscape split. Mirrors TouchJoystick. */
++  // NOTE: plain field (not @property) to avoid touching the editor-owned scene;
++  // flip in code if the project ships landscape-first.
++  private aimLandscape: boolean = false;
++
+   private inputX: number = 0;
+   private inputY: number = 0;
+   private currentBankAngle: number = 0;
++  private currentAimYaw: number = 0;
++  private currentAimPitch: number = 0;
+   private transform: Maybe<TransformComponent> = null;
+   private visualsTransform: Maybe<TransformComponent> = null;
+   private moveSub: Maybe<EventSubscription> = null;
+   private wired: boolean = false;
+ 
++  // Aim stick state (floating stick, origin at touch-down).
++  private aimActiveIndex: Maybe<number> = null;
++  private aimOriginX: number = 0;
++  private aimOriginY: number = 0;
++  private aimX: number = 0;
++  private aimY: number = 0;
++
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Owner})
+   onStart(): void {
+     if (NetworkingService.get().isServerContext()) return;
+@@ -72,6 +103,24 @@ export class SpaceShipController extends Component {
+         break;
+       }
+     }
++
++    // Second floating stick for aim on the complementary screen half.
++    // zPriority 60 sits above the movement stick (50); passThrough:false
++    // consumes the touch so the background camera-look drag (zPriority 0)
++    // does not also fire on the aim half.
++    TouchRouter.register({
++      id: 'aimStick',
++      zPriority: 60,
++      passThrough: false,
++      holdMode: TouchHoldMode.HoldUntilRelease,
++      hitTest: (pos: Vec2) => this.isInAimZone(pos),
++      handlers: {
++        onStart: (index: number, pos: Vec2) => this.onAimStart(index, pos),
++        onMove: (index: number, pos: Vec2) => this.onAimMove(index, pos),
++        onEnd: (index: number) => this.onAimEnd(index),
++      },
++    });
++
+     console.log('[SpaceShipController] Initialized');
+     this.wireInput();
+   }
+@@ -95,6 +144,34 @@ export class SpaceShipController extends Component {
+   onDestroy(): void {
+     this.moveSub?.disconnect();
+     this.moveSub = null;
++    TouchRouter.unregister('aimStick');
++    this.aimActiveIndex = null;
++    this.aimX = 0;
++    this.aimY = 0;
++  }
++
++  /**
++   * Aim direction for projectiles, in world space. Forward-biased: the stick
++   * nudges aim laterally/vertically around the -Z flight direction.
++   */
++  public getAimDirection(): Vec3 {
++    const aimMag = Math.hypot(this.aimX, this.aimY);
++    let ax = 0;
++    let ay = 0;
++    if (this.aimActiveIndex !== null && aimMag > 0.05) {
++      ax = this.aimX;
++      ay = this.aimY;
++    } else if (Math.hypot(this.inputX, this.inputY) > 0.2) {
++      // Desktop fallback (no mouse-position API): shoot where you fly.
++      ax = this.inputX;
++      ay = this.inputY;
++    }
++    return new Vec3(ax, ay, -1).normalize();
++  }
++
++  /** True while the aim stick is deflected enough to auto-fire. */
++  public isAimFiring(): boolean {
++    return this.aimActiveIndex !== null && Math.hypot(this.aimX, this.aimY) > AIM_FIRE_THRESHOLD;
+   }
+ 
+   private wireInput(): void {
+@@ -110,10 +187,61 @@ export class SpaceShipController extends Component {
+     console.log('[SpaceShipController] Wired to Move action');
+   }
+ 
++  /** Portrait: top half (y < 0.5). Landscape: right half (x >= 0.5). */
++  private isInAimZone(pos: Vec2): boolean {
++    return this.aimLandscape ? pos.x >= 0.5 : pos.y < 0.5;
++  }
++
++  private onAimStart(index: number, pos: Vec2): void {
++    if (this.aimActiveIndex !== null && this.aimActiveIndex !== index) return;
++    this.aimActiveIndex = index;
++    this.aimOriginX = pos.x;
++    this.aimOriginY = pos.y;
++    this.aimX = 0;
++    this.aimY = 0;
++  }
++
++  private onAimMove(index: number, pos: Vec2): void {
++    if (index !== this.aimActiveIndex) return;
++    // Screen Y grows downward; stick Y is +1 = up.
++    const dx = (pos.x - this.aimOriginX) / AIM_RADIUS;
++    const dy = -(pos.y - this.aimOriginY) / AIM_RADIUS;
++    const mag = Math.hypot(dx, dy);
++    if (mag < AIM_DEADZONE) {
++      this.aimX = 0;
++      this.aimY = 0;
++      return;
++    }
++    const clampedMag = Math.min(mag, 1);
++    const scaledMag = Math.min(
++      Math.max((clampedMag - AIM_DEADZONE) / (1 - AIM_DEADZONE), 0),
++      1,
++    );
++    this.aimX = (dx / mag) * scaledMag;
++    this.aimY = (dy / mag) * scaledMag;
++  }
++
++  private onAimEnd(index: number): void {
++    if (index !== this.aimActiveIndex) return;
++    this.aimActiveIndex = null;
++    this.aimX = 0;
++    this.aimY = 0;
++  }
++
+   private applyBanking(dt: number): void {
+     if (!this.visualsTransform) return;
+     const targetBank = -this.inputX * BANK_ANGLE_DEG;
+     this.currentBankAngle += (targetBank - this.currentBankAngle) * Math.min(1, BANK_LERP_SPEED * dt);
+-    this.visualsTransform.localRotation = Quaternion.fromEuler(new Vec3(0, 180, this.currentBankAngle));
++
++    const aiming = this.aimActiveIndex !== null && Math.hypot(this.aimX, this.aimY) > 0.05;
++    const targetYaw = aiming ? this.aimX * AIM_YAW_DEG : 0;
++    const targetPitch = aiming ? -this.aimY * AIM_PITCH_DEG : 0;
++    const k = Math.min(1, AIM_NOSE_LERP_SPEED * dt);
++    this.currentAimYaw += (targetYaw - this.currentAimYaw) * k;
++    this.currentAimPitch += (targetPitch - this.currentAimPitch) * k;
++
++    this.visualsTransform.localRotation = Quaternion.fromEuler(
++      new Vec3(this.currentAimPitch, 180 + this.currentAimYaw, this.currentBankAngle),
++    );
+   }
+ }
+diff --git a/scripts/SpaceShooter/SpaceShooterDamageReceiver.ts b/scripts/SpaceShooter/SpaceShooterDamageReceiver.ts
+index 1a9c286..51cd3ac 100644
+--- a/scripts/SpaceShooter/SpaceShooterDamageReceiver.ts
++++ b/scripts/SpaceShooter/SpaceShooterDamageReceiver.ts
+@@ -1,5 +1,6 @@
+ /**
+- * SpaceShooterDamageReceiver — RPC bridge for dealing damage to the player.
++ * SpaceShooterDamageReceiver — RPC bridge for dealing damage to the player,
++ * with an energy shield that absorbs damage before hull HP.
+  *
+  * Component Attachment: PlayerCharacter root entity
+  * Component Networking: Networked
+@@ -7,25 +8,42 @@
+  *
+  * Since the player is client-owned, the server cannot directly modify the
+  * player's health. This component provides an @rpc() method that the server
+- * calls. The RPC routes to the owning client, which then calls
+- * CharacterGASComponent.takeDamage().
++ * calls. The RPC routes to the owning client, which first drains the shield
++ * and then calls CharacterGASComponent.takeDamage() for any remainder.
++ *
++ * The shield regenerates after a few seconds without damage. Shield state is
++ * broadcast via OnSpaceShooterShieldChangedEvent for HUD/effects wiring.
+  */
+ import {
+   component,
+   Component,
+   subscribe,
+   OnEntityStartEvent,
++  OnWorldUpdateEvent,
+   ExecuteOn,
++  WorldService,
+   rpc,
+ } from 'meta/worlds';
+-import type {Maybe} from 'meta/worlds';
++import type {Maybe, OnWorldUpdateEventPayload} from 'meta/worlds';
+ import {CharacterGASComponent} from '../gas/CharacterGASComponent';
++import {
++  OnSpaceShooterShieldChangedEvent,
++  SpaceShooterShieldPayload,
++} from './SpaceShooterEvents';
++
++const SHIELD_MAX = 50;
++const SHIELD_REGEN_PER_SEC = 12;
++const SHIELD_REGEN_DELAY_SEC = 3;
+ 
+ @component({
+-  description: 'RPC bridge for server-to-client damage. Attach to PlayerCharacter root.',
++  description: 'RPC bridge for server-to-client damage, with regenerating energy shield. Attach to PlayerCharacter root.',
+ })
+ export class SpaceShooterDamageReceiver extends Component {
+   private gasComp: Maybe<CharacterGASComponent> = null;
++  private shield: number = SHIELD_MAX;
++  private lastDamageTime: number = -1000;
++  private lastBroadcastShield: number = -1;
++  private lastHitAt: number = -1000;
+ 
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Everywhere})
+   onStart(): void {
+@@ -39,8 +57,65 @@ export class SpaceShooterDamageReceiver extends Component {
+     if (!this.gasComp) {
+       this.gasComp = this.entity.getComponent(CharacterGASComponent);
+     }
+-    if (this.gasComp) {
+-      this.gasComp.takeDamage(amount);
++
++    const now = WorldService.get().getWorldTime();
++    this.lastDamageTime = now;
++    this.lastHitAt = now;
++
++    let remaining = amount;
++    if (this.shield > 0 && remaining > 0) {
++      const absorbed = Math.min(this.shield, remaining);
++      this.shield -= absorbed;
++      remaining -= absorbed;
++      console.log(`[SpaceShooterDamageReceiver] Shield absorbed ${absorbed} (left: ${this.shield})`);
++      if (this.shield <= 0) {
++        console.log('[SpaceShooterDamageReceiver] SHIELD DOWN!');
++      }
++      this.broadcastShield();
++    }
++
++    if (remaining > 0 && this.gasComp) {
++      console.log(`[SpaceShooterDamageReceiver] Hull damage: ${remaining}`);
++      this.gasComp.takeDamage(remaining);
+     }
+   }
++
++  @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Owner})
++  onUpdate(payload: OnWorldUpdateEventPayload): void {
++    if (this.shield >= SHIELD_MAX) return;
++    const now = WorldService.get().getWorldTime();
++    if (now - this.lastDamageTime < SHIELD_REGEN_DELAY_SEC) return;
++    this.shield = Math.min(SHIELD_MAX, this.shield + SHIELD_REGEN_PER_SEC * payload.deltaTime);
++    this.broadcastShield();
++  }
++
++  public getShield(): number {
++    return this.shield;
++  }
++
++  public getShieldMax(): number {
++    return SHIELD_MAX;
++  }
++
++  /** World time of the last damage taken (drives the HUD hit-flash). */
++  public getLastHitTime(): number {
++    return this.lastHitAt;
++  }
++
++  /** Refill the shield (e.g. SHIELD powerup in a later round). */
++  public restoreShield(amount: number): void {
++    this.shield = Math.min(SHIELD_MAX, this.shield + amount);
++    this.broadcastShield();
++    console.log(`[SpaceShooterDamageReceiver] Shield restored to ${this.shield}`);
++  }
++
++  private broadcastShield(): void {
++    const floored = Math.floor(this.shield);
++    if (floored === this.lastBroadcastShield) return;
++    this.lastBroadcastShield = floored;
++    this.entity.sendEventToEveryone(
++      OnSpaceShooterShieldChangedEvent,
++      new SpaceShooterShieldPayload(this.shield, SHIELD_MAX),
++    );
++  }
+ }
+diff --git a/scripts/SpaceShooter/SpaceShooterEvents.ts b/scripts/SpaceShooter/SpaceShooterEvents.ts
+index ecfd78a..d7b6164 100644
+--- a/scripts/SpaceShooter/SpaceShooterEvents.ts
++++ b/scripts/SpaceShooter/SpaceShooterEvents.ts
+@@ -38,3 +38,57 @@ export const OnSpaceShooterVictoryEvent = new NetworkEvent(
+   'OnSpaceShooterVictoryEvent',
+   SpaceShooterScorePayload,
+ );
++
++@serializable()
++export class SpaceShooterShieldPayload {
++  @property()
++  readonly current: number = 0;
++  @property()
++  readonly max: number = 0;
++  constructor(current: number = 0, max: number = 0) {
++    this.current = current;
++    this.max = max;
++  }
++}
++
++export const OnSpaceShooterShieldChangedEvent = new NetworkEvent(
++  'OnSpaceShooterShieldChangedEvent',
++  SpaceShooterShieldPayload,
++);
++
++@serializable()
++export class SpaceShooterPowerupPayload {
++  @property()
++  readonly kind: string = '';
++  constructor(kind: string = '') {
++    this.kind = kind;
++  }
++}
++
++export const OnSpaceShooterPowerupCollectedEvent = new NetworkEvent(
++  'OnSpaceShooterPowerupCollectedEvent',
++  SpaceShooterPowerupPayload,
++);
++
++@serializable()
++export class SpaceShooterKillPayload {
++  @property()
++  readonly posX: number = 0;
++  @property()
++  readonly posY: number = 0;
++  @property()
++  readonly posZ: number = 0;
++  @property()
++  readonly boss: boolean = false;
++  constructor(posX: number = 0, posY: number = 0, posZ: number = 0, boss: boolean = false) {
++    this.posX = posX;
++    this.posY = posY;
++    this.posZ = posZ;
++    this.boss = boss;
++  }
++}
++
++export const OnSpaceShooterEnemyKilledEvent = new NetworkEvent(
++  'OnSpaceShooterEnemyKilledEvent',
++  SpaceShooterKillPayload,
++);
+diff --git a/scripts/SpaceShooter/SpaceShooterHUDController.ts b/scripts/SpaceShooter/SpaceShooterHUDController.ts
+index ae0d140..68d6c2b 100644
+--- a/scripts/SpaceShooter/SpaceShooterHUDController.ts
++++ b/scripts/SpaceShooter/SpaceShooterHUDController.ts
+@@ -1,12 +1,13 @@
+ /**
+- * SpaceShooterHUDController — Drives the score and health HUD.
++ * SpaceShooterHUDController — Drives the score, health, shield, wave, timer,
++ * hit-flash, and powerup HUD.
+  *
+  * Component Attachment: SpaceShooterHUD scene entity (with CustomUi)
+  * Component Networking: Local (client-only display)
+  * Component Ownership: Not networked
+  *
+- * Subscribes to OnSpaceShooterScoreChangedEvent for score updates.
+- * Polls CharacterGASComponent health each frame for the health bar.
++ * Subscribes to score/wave/shield/victory events; polls GAS health and the
++ * damage receiver (hit-flash) and ShootControlsBridge (powerup timer) each frame.
+  */
+ import {
+   component,
+@@ -24,6 +25,7 @@ import {
+   PlayerService,
+   CameraService,
+   NetworkingService,
++  WorldService,
+   UiViewModel,
+   uiViewModel,
+   Service,
+@@ -34,13 +36,20 @@ import {CharacterGASComponent, MAX_HEALTH_ATTR} from '../gas/CharacterGASCompone
+ import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
+ import {
+   OnSpaceShooterScoreChangedEvent,
++  OnSpaceShooterWaveChangedEvent,
++  OnSpaceShooterVictoryEvent,
+   SpaceShooterScorePayload,
++  SpaceShooterWavePayload,
+ } from './SpaceShooterEvents';
+ import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
++import {SpaceShooterDamageReceiver} from './SpaceShooterDamageReceiver';
++import {ShootControlsBridge} from '../ShootControlsBridge';
+ 
+ const REF_W = 1080;
+ const REF_H = 1920;
+ const HEALTH_BAR_MAX_WIDTH = 160;
++const SHIELD_BAR_MAX_WIDTH = 160;
++const HIT_FLASH_SECONDS = 0.3;
+ 
+ @uiViewModel()
+ export class SpaceShooterHUDViewModel extends UiViewModel {
+@@ -49,18 +58,30 @@ export class SpaceShooterHUDViewModel extends UiViewModel {
+   healthText: string = '100';
+   healthBarWidth: number = HEALTH_BAR_MAX_WIDTH;
+   healthBarColor: string = '#33FF4D';
++  shieldText: string = '50';
++  shieldBarWidth: number = SHIELD_BAR_MAX_WIDTH;
++  shieldBarColor: string = '#33CCFF';
++  waveText: string = '';
++  timerText: string = '0:00';
++  hitFlashOpacity: number = 0;
++  powerupText: string = '';
+   safeAreaMargin: string = '0,0,0,0';
+ }
+ 
+ @component({
+   description:
+-    'Drives the space shooter HUD (score + health). Attach to the HUD scene entity with CustomUi.',
++    'Drives the space shooter HUD (score + health + shield + wave + timer). Attach to the HUD scene entity with CustomUi.',
+ })
+ export class SpaceShooterHUDController extends Component {
+   private viewModel = new SpaceShooterHUDViewModel();
+   private customUi: Maybe<CustomUiComponent> = null;
+   private playerEntity: Maybe<Entity> = null;
+   private gasComp: Maybe<CharacterGASComponent> = null;
++  private receiver: Maybe<SpaceShooterDamageReceiver> = null;
++  private bridge: Maybe<ShootControlsBridge> = null;
++  private timerStart: number = -1;
++  private timerFrozen: number = 0;
++  private timerRunning: boolean = false;
+ 
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Everywhere})
+   onStart(): void {
+@@ -96,6 +117,26 @@ export class SpaceShooterHUDController extends Component {
+     console.log(`[SpaceShooterHUDController] Score updated: ${payload.score}`);
+   }
+ 
++  @subscribe(OnSpaceShooterWaveChangedEvent, {execution: ExecuteOn.Everywhere})
++  onWaveChanged(payload: SpaceShooterWavePayload): void {
++    if (NetworkingService.get().isServerContext()) return;
++    this.viewModel.waveText = `WAVE ${payload.wave}/${payload.totalWaves}`;
++    if (payload.wave === 1) {
++      // (Re)start the mission timer on wave 1 — also fires on restart
++      this.timerStart = WorldService.get().getWorldTime();
++      this.timerFrozen = 0;
++      this.timerRunning = true;
++      this.viewModel.powerupText = '';
++    }
++    console.log(`[SpaceShooterHUDController] ${this.viewModel.waveText}`);
++  }
++
++  @subscribe(OnSpaceShooterVictoryEvent, {execution: ExecuteOn.Everywhere})
++  onVictory(): void {
++    if (NetworkingService.get().isServerContext()) return;
++    this.freezeTimer();
++  }
++
+   @subscribe(OnSafeZonesChangeEvent, {execution: ExecuteOn.Everywhere})
+   onSafeZonesChanged(): void {
+     this.updateSafeArea();
+@@ -110,7 +151,9 @@ export class SpaceShooterHUDController extends Component {
+     }
+     if (!this.gasComp) return;
+ 
+-    // Read health from GAS attribute
++    const now = WorldService.get().getWorldTime();
++
++    // Health bar
+     const health = this.gasComp.getAttributeValue(HEALTH_ATTR) ?? 0;
+     const maxHealth = this.gasComp.getAttributeValue(MAX_HEALTH_ATTR) ?? 100;
+     const healthPct = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
+@@ -126,6 +169,56 @@ export class SpaceShooterHUDController extends Component {
+     } else {
+       this.viewModel.healthBarColor = '#FF3333';
+     }
++
++    if (health <= 0 && this.timerRunning) {
++      this.freezeTimer();
++    }
++
++    // Shield bar (polled from the damage receiver)
++    if (this.receiver) {
++      const shield = this.receiver.getShield();
++      const shieldMax = this.receiver.getShieldMax();
++      const shieldPct = shieldMax > 0 ? Math.max(0, Math.min(1, shield / shieldMax)) : 0;
++      this.viewModel.shieldText = String(Math.ceil(shield));
++      this.viewModel.shieldBarWidth = Math.round(shieldPct * SHIELD_BAR_MAX_WIDTH);
++      this.viewModel.shieldBarColor = shieldPct > 0 ? '#33CCFF' : '#226688';
++
++      // Hit-flash: bright red overlay fading over HIT_FLASH_SECONDS
++      const sinceHit = now - this.receiver.getLastHitTime();
++      this.viewModel.hitFlashOpacity =
++        sinceHit < HIT_FLASH_SECONDS ? 1 - sinceHit / HIT_FLASH_SECONDS : 0;
++    }
++
++    // Powerup indicator
++    if (this.bridge) {
++      const mode = this.bridge.getWeaponMode();
++      if (mode === 'single') {
++        this.viewModel.powerupText = '';
++      } else {
++        const secs = Math.ceil(this.bridge.getWeaponTimeLeft());
++        this.viewModel.powerupText = `${mode.toUpperCase()} ${secs}s`;
++      }
++    }
++
++    // Mission timer
++    if (this.timerRunning && this.timerStart >= 0) {
++      this.viewModel.timerText = this.formatTime(now - this.timerStart);
++    } else if (!this.timerRunning && this.timerStart >= 0) {
++      this.viewModel.timerText = this.formatTime(this.timerFrozen);
++    }
++  }
++
++  private freezeTimer(): void {
++    if (this.timerRunning && this.timerStart >= 0) {
++      this.timerFrozen = WorldService.get().getWorldTime() - this.timerStart;
++    }
++    this.timerRunning = false;
++  }
++
++  private formatTime(seconds: number): string {
++    const s = Math.max(0, Math.floor(seconds));
++    const m = Math.floor(s / 60);
++    return `${m}:${String(s % 60).padStart(2, '0')}`;
+   }
+ 
+   private refreshPlayer(): void {
+@@ -134,6 +227,8 @@ export class SpaceShooterHUDController extends Component {
+     if (player) {
+       this.playerEntity = player;
+       this.gasComp = player.getComponent(CharacterGASComponent);
++      this.receiver = player.getComponent(SpaceShooterDamageReceiver);
++      this.bridge = player.getComponent(ShootControlsBridge);
+     }
+   }
+ 
+-- 
+2.43.0
+

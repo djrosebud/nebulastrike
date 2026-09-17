@@ -5,7 +5,11 @@
 
   Shows:
   - Score (top-center, cyan on dark semi-transparent)
+  - Mission timer + active powerup (below score)
   - Health bar (top-right, green bar on dark background)
+  - Shield bar (below health, blue)
+  - Wave counter (top-left)
+  - Hit-flash (fullscreen red fade on damage)
 
   Sci-fi font: Teko. FontSize >= 44.
 -->
@@ -22,6 +26,10 @@
     <Grid>
       <Grid x:Name="ContentContainer" Margin="{Binding safeAreaMargin}">
 
+        <!-- Hit-flash overlay (fullscreen red fade on damage) -->
+        <Border Background="#CCFF2222" Opacity="{Binding hitFlashOpacity}"
+                IsHitTestVisible="False"/>
+
         <!-- Top HUD bar -->
         <Grid VerticalAlignment="Top" Margin="0,420,0,0" Height="80">
           <Grid.ColumnDefinitions>
@@ -30,38 +38,79 @@
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
-          <!-- Score (center) -->
-          <Border Grid.Column="1" Background="#99000000" CornerRadius="12"
-                  Padding="30,8,30,8" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-              <TextBlock Text="SCORE: " Foreground="#FF00DDFF" FontFamily="Teko"
-                         FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
-              <TextBlock Text="{Binding scoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
-                         FontSize="52" FontWeight="Bold" VerticalAlignment="Center"/>
-            </StackPanel>
+          <!-- Wave counter (left) -->
+          <Border Grid.Column="0" Background="#99000000" CornerRadius="12"
+                  Padding="20,8,20,8" HorizontalAlignment="Left" VerticalAlignment="Center"
+                  Margin="30,0,0,0">
+            <TextBlock Text="{Binding waveText}" Foreground="#FFFFE619" FontFamily="Teko"
+                       FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
           </Border>
 
-          <!-- Health (right) -->
+          <!-- Score (center) -->
+          <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Background="#99000000" CornerRadius="12"
+                    Padding="30,8,30,8" HorizontalAlignment="Center">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Text="SCORE: " Foreground="#FF00DDFF" FontFamily="Teko"
+                           FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding scoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                           FontSize="52" FontWeight="Bold" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Border>
+            <!-- Mission timer + active powerup -->
+            <Border Background="#99000000" CornerRadius="12"
+                    Padding="20,4,20,4" HorizontalAlignment="Center" Margin="0,8,0,0">
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Text="{Binding timerText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding powerupText}" Foreground="#FF7CFF00" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
+                           Margin="16,0,0,0"/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- Health + shield (right) -->
           <Border Grid.Column="2" Background="#99000000" CornerRadius="12"
                   Padding="20,8,20,8" HorizontalAlignment="Right" VerticalAlignment="Center"
                   Margin="0,0,30,0">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Text="HP " Foreground="#FF00DDFF" FontFamily="Teko"
-                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
-              <!-- Health bar background -->
-              <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
-                      VerticalAlignment="Center">
-                <!-- Health bar fill -->
-                <Border HorizontalAlignment="Left" CornerRadius="6"
-                        Width="{Binding healthBarWidth}" Height="24">
-                  <Border.Background>
-                    <SolidColorBrush Color="{Binding healthBarColor}"/>
-                  </Border.Background>
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="HP " Foreground="#FF00DDFF" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
+                <!-- Health bar background -->
+                <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
+                        VerticalAlignment="Center">
+                  <!-- Health bar fill -->
+                  <Border HorizontalAlignment="Left" CornerRadius="6"
+                          Width="{Binding healthBarWidth}" Height="24">
+                    <Border.Background>
+                      <SolidColorBrush Color="{Binding healthBarColor}"/>
+                    </Border.Background>
+                  </Border>
                 </Border>
-              </Border>
-              <TextBlock Text="{Binding healthText}" Foreground="#FFFFFFFF" FontFamily="Teko"
-                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
-                         Margin="10,0,0,0"/>
+                <TextBlock Text="{Binding healthText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
+                           Margin="10,0,0,0"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="SH " Foreground="#FF33CCFF" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
+                <!-- Shield bar background -->
+                <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
+                        VerticalAlignment="Center">
+                  <!-- Shield bar fill -->
+                  <Border HorizontalAlignment="Left" CornerRadius="6"
+                          Width="{Binding shieldBarWidth}" Height="24">
+                    <Border.Background>
+                      <SolidColorBrush Color="{Binding shieldBarColor}"/>
+                    </Border.Background>
+                  </Border>
+                </Border>
+                <TextBlock Text="{Binding shieldText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                           FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
+                           Margin="10,0,0,0"/>
+              </StackPanel>
             </StackPanel>
           </Border>
         </Grid>

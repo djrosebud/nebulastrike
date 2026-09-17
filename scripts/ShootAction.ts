@@ -66,7 +66,9 @@ export class ShootAction extends Component {
   }
 
   // Fire one shot. Call this from project glue on a `Shoot` input press.
-  public fireShot(): void {
+  // Pass an explicit aim direction (e.g. from the twin-stick) to override the
+  // default forward aim. pelletCount/rapidFire carry powerup weapon modes.
+  public fireShot(aimDirectionOverride?: Vec3, pelletCount: number = 1, rapidFire: boolean = false): void {
     // Only the owner can fire their weapon
     if (!this.entity.isOwned()) {
       return;
@@ -101,8 +103,10 @@ export class ShootAction extends Component {
       worldPos.z + worldOffset.z,
     );
 
-    // Get aim direction (entity's forward direction)
-    const aimDirection = this.transform.worldForward;
+    // Get aim direction: explicit override (twin-stick) or entity forward.
+    const aimDirection = aimDirectionOverride != null
+      ? aimDirectionOverride.normalize()
+      : this.transform.worldForward;
 
     // CRITICAL FIX: Use entity.sendEventToEveryone instead of this.sendEventToEveryone
     // - this.sendEventToEveryone sends to SAME COMPONENT TYPE (ShootAction) on other replicants
@@ -119,6 +123,8 @@ export class ShootAction extends Component {
       aimDirection.x,
       aimDirection.y,
       aimDirection.z,
+      pelletCount,
+      rapidFire,
     ));
 
     console.log('[ShootAction] Event sent to server via entity.sendEventToEveryone');

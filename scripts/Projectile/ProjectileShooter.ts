@@ -110,9 +110,10 @@ export class ProjectileShooter extends Component {
 
     console.log('[ProjectileShooter] Server processing spawn request');
 
-    // Check fire rate cooldown
+    // Check fire rate cooldown (RAPID powerup shortens it)
     const currentTime = WorldService.get().getWorldTime();
-    if (currentTime - this.lastShootTime < this.fireRate) {
+    const cooldown = payload.rapidFire ? 0.09 : this.fireRate;
+    if (currentTime - this.lastShootTime < cooldown) {
       console.log('[ProjectileShooter] Fire rate cooldown - ignoring shot');
       return;
     }
@@ -138,13 +139,27 @@ export class ProjectileShooter extends Component {
       payload.aimDirectionZ,
     ).normalize();
 
-    // Calculate rotation from aim direction
-    const rotation = Quaternion.lookRotation(aimDirection, Vec3.up);
+    const pelletCount = Math.max(1, Math.min(5, Math.floor(payload.pelletCount) || 1));
+    console.log(`[ProjectileShooter] Spawning ${pelletCount} projectile(s) at (${spawnPosition.x.toFixed(2)}, ${spawnPosition.y.toFixed(2)}, ${spawnPosition.z.toFixed(2)})`);
 
-    console.log(`[ProjectileShooter] Spawning projectile at (${spawnPosition.x.toFixed(2)}, ${spawnPosition.y.toFixed(2)}, ${spawnPosition.z.toFixed(2)})`);
+    // Spawn projectiles on server (async — must await before getComponent)
+    for (let i = 0; i < pelletCount; i++) {
+      const spreadAngle = (i - (pelletCount - 1) / 2) * 0.18; // ~10 deg yaw per step
+      const dir = this.yawRotate(aimDirection, spreadAngle);
+      const rotation = Quaternion.lookRotation(dir, Vec3.up);
+      this.spawnProjectile(spawnPosition, rotation);
+    }
+  }
 
-    // Spawn projectile on server (async — must await before getComponent)
-    this.spawnProjectile(spawnPosition, rotation);
+  /** Rotate a direction vector around world Y (for 3-way spread). */
+  private yawRotate(dir: Vec3, angle: number): Vec3 {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return new Vec3(
+      dir.x * c + dir.z * s,
+      dir.y,
+      -dir.x * s + dir.z * c,
+    ).normalize();
   }
 
   private async spawnProjectile(spawnPosition: Vec3, rotation: Quaternion): Promise<void> {

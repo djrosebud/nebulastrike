@@ -41,6 +41,11 @@ import type {
 import {Bullet} from '../Projectile/Bullet';
 import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
 import {SpaceShooterDamageReceiver} from './SpaceShooterDamageReceiver';
+import {EnemyProjectile} from './EnemyProjectile';
+import {
+  OnSpaceShooterEnemyKilledEvent,
+  SpaceShooterKillPayload,
+} from './SpaceShooterEvents';
 
 const DAMAGE_TO_PLAYER = 20;
 const DESPAWN_DISTANCE = 30;
@@ -49,6 +54,7 @@ const BOSS_SPEED = 4.5;
 const BOSS_FIRE_INTERVAL = 2.5;
 const BOSS_RADIAL_COUNT = 12;
 const BOSS_SCORE = 1000;
+const DEATH_POP_TIME = 0.28;
 
 @component({
   description: 'Enemy ship AI. Attach to enemy ship template root.',
@@ -71,10 +77,16 @@ export class EnemyShipController extends Component {
   @property()
   driftFrequency: number = 1.5;
 
+  /** Per-wave projectile damage, tuned by EnemySpawner right after spawn. */
+  @property()
+  projectileDamage: number = 15;
+
   private transform: Maybe<TransformComponent> = null;
   private playerEntity: Maybe<Entity> = null;
   private lastFireTime: number = 0;
   private destroyed: boolean = false;
+  private dying: boolean = false;
+  private deathT: number = 0;
   private driftPhase: number = 0;
   private isBoss: boolean = false;
   private radialCount: number = 0;
@@ -110,7 +122,24 @@ export class EnemyShipController extends Component {
   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
   onUpdate(payload: OnWorldUpdateEventPayload): void {
     if (!NetworkingService.get().isServerContext()) return;
-    if (!this.transform || this.destroyed) return;
+    if (!this.transform) return;
+
+    const dt = payload.deltaTime;
+
+    // Death pop: scale up and rise briefly, then destroy
+    if (this.dying) {
+      this.deathT += dt;
+      const t = Math.min(1, this.deathT / DEATH_POP_TIME);
+      const s = 1 + t * 1.4;
+      this.transform.worldScale = new Vec3(s, s, s);
+      const pos = this.transform.worldPosition;
+      this.transform.worldPosition = new Vec3(pos.x, pos.y + dt * 3, pos.z);
+      if (this.deathT >= DEATH_POP_TIME) {
+        this.entity.destroy();
+      }
+      return;
+    }
+    if (this.destroyed) return;
 
     // Re-find player if lost
     if (!this.playerEntity || this.playerEntity.isDestroyed()) {
@@ -122,7 +151,6 @@ export class EnemyShipController extends Component {
     const playerTransform = this.playerEntity.getComponent(TransformComponent);
     if (!playerTransform) return;
 
-    const dt = payload.deltaTime;
     const pos = this.transform.worldPosition;
     const playerPos = playerTransform.worldPosition;
 
@@ -183,12 +211,7 @@ export class EnemyShipController extends Component {
     if (this.findInChain(otherEntity, (e) => e.getComponent(Bullet) != null)) {
       this.hitPoints -= 1;
       if (this.hitPoints <= 0) {
-        console.log(
-          `[EnemyShipController] ${this.isBoss ? 'BOSS' : 'Drone'} destroyed! +${this.scoreValue}`,
-        );
-        this.destroyed = true;
-        SpaceShooterScoreManager.instance?.addScore(this.scoreValue);
-        this.entity.destroy();
+        this.startDeathPop();
       } else {
         console.log(
           `[EnemyShipController] Hit! HP remaining: ${this.hitPoints}`,
@@ -203,10 +226,26 @@ export class EnemyShipController extends Component {
       this.dealDamageToPlayer(otherEntity);
       // Drones die on ramming; the boss plows through
       if (!this.isBoss) {
-        this.destroyed = true;
-        this.entity.destroy();
+        this.startDeathPop();
       }
     }
+  }
+
+  /** Score + kill event + death-pop animation (destroy deferred). */
+  private startDeathPop(): void {
+    if (this.dying) return;
+    this.dying = true;
+    this.destroyed = true;
+    this.deathT = 0;
+    console.log(
+      `[EnemyShipController] ${this.isBoss ? 'BOSS' : 'Drone'} destroyed! +${this.scoreValue}`,
+    );
+    SpaceShooterScoreManager.instance?.addScore(this.scoreValue);
+    const pos = this.transform?.worldPosition ?? new Vec3(0, 5, -10);
+    this.entity.sendEventToEveryone(
+      OnSpaceShooterEnemyKilledEvent,
+      new SpaceShooterKillPayload(pos.x, pos.y, pos.z, this.isBoss),
+    );
   }
 
   private async fireAtPlayer(playerPos: Vec3): Promise<void> {
@@ -217,12 +256,13 @@ export class EnemyShipController extends Component {
     const rotation = Quaternion.lookRotation(dirToPlayer, Vec3.up);
 
     try {
-      await WorldService.get().spawnTemplate({
+      const spawned = await WorldService.get().spawnTemplate({
         templateAsset: this.enemyProjectileTemplate,
         networkMode: NetworkMode.Networked,
         position: spawnPos,
         rotation: rotation,
       });
+      spawned.getComponent(EnemyProjectile)?.setDamage(this.projectileDamage);
     } catch (err) {
       console.error('[EnemyShipController] Failed to spawn projectile:', err);
     }
@@ -261,12 +301,13 @@ export class EnemyShipController extends Component {
       const spawnPos = pos.add(d.mul(4));
       const rotation = Quaternion.lookRotation(d, Vec3.up);
       try {
-        await WorldService.get().spawnTemplate({
+        const spawned = await WorldService.get().spawnTemplate({
           templateAsset: this.enemyProjectileTemplate,
           networkMode: NetworkMode.Networked,
           position: spawnPos,
           rotation: rotation,
         });
+        spawned.getComponent(EnemyProjectile)?.setDamage(this.projectileDamage);
       } catch (err) {
         console.error('[EnemyShipController] Boss radial fire failed:', err);
         return;

@@ -32,13 +32,23 @@ export class RequestShootPayload {
   @property()
   public readonly aimDirectionZ: number;
 
+  /** 3-way spread pellet count for the TRIPLE powerup. */
+  @property()
+  public readonly pelletCount: number;
+
+  /** Faster server cooldown for the RAPID powerup. */
+  @property()
+  public readonly rapidFire: boolean;
+
   constructor(
     spawnPositionX: number = 0,
     spawnPositionY: number = 0,
     spawnPositionZ: number = 0,
     aimDirectionX: number = 0,
     aimDirectionY: number = 0,
-    aimDirectionZ: number = -1
+    aimDirectionZ: number = -1,
+    pelletCount: number = 1,
+    rapidFire: boolean = false
   ) {
     this.spawnPositionX = spawnPositionX;
     this.spawnPositionY = spawnPositionY;
@@ -46,6 +56,8 @@ export class RequestShootPayload {
     this.aimDirectionX = aimDirectionX;
     this.aimDirectionY = aimDirectionY;
     this.aimDirectionZ = aimDirectionZ;
+    this.pelletCount = pelletCount;
+    this.rapidFire = rapidFire;
   }
 }
 
