@@ -1,0 +1,10 @@
+{
+  "packages": {
+    "meta/sci_fi_fighter_ship/0.0.2": {
+      "author": "meta",
+      "folderName": "sci_fi_fighter_ship",
+      "name": "sci_fi_fighter_ship",
+      "version": "0.0.2"
+    }
+  }
+}

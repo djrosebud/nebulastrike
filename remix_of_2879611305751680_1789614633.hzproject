@@ -1,0 +1,59 @@
+{
+    "id": "61786525-12db-4e3a-8e64-83bb2730352c",
+    "defaultTemplateAssetId": {
+        "packageOrRemoteId": "16212686674365818645",
+        "ingestionId": "9283196365134439043",
+        "targetId": "2719744159"
+    },
+    "organizationId": "763441566862672",
+    "organizationName": "dj_rosebud's team",
+    "organizationScope": "djrosebudsteam",
+    "worldId": "1237803019426522",
+    "collisionLayers": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+    ],
+    "playerSettings": {
+        "__attr__": {
+            "__version__": {
+                "version": 2
+            }
+        },
+        "avatarMax": 1,
+        "screenOrientation": "Portrait"
+    },
+    "editorVersion": "191.0.0.0.162",
+    "remotePackageId": "38875547485392439",
+    "remixSource": "meta/3D_Template_V2#0.0.11",
+    "sourceWorldId": "2879611305751680"
+}

@@ -1,0 +1,61 @@
+<!--
+  SpaceShooterGameOver — Game Over screen for the space shooter.
+  Portrait build (1080x1920). isInteractable=true (restart button).
+  renderOrderOffset = 101 (game-loop modal band).
+  Starts hidden (panelVisibility=false), shown on player death.
+-->
+<Component
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:noesis="clr-namespace:NoesisGUIExtensions"
+  mc:Ignorable="d"
+  d:DesignWidth="1080"
+  d:DesignHeight="1920">
+  <noesis:LayoutScaler ReferenceResolution="1080,1920">
+    <Grid>
+      <!-- Full-screen dark overlay -->
+      <Grid Background="#CC000000"/>
+
+      <Grid x:Name="ContentContainer" Margin="{Binding safeAreaMargin}">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+
+          <!-- GAME OVER title -->
+          <TextBlock Text="GAME OVER" Foreground="#FFFF3333" FontFamily="Teko"
+                     FontSize="120" FontWeight="Bold" HorizontalAlignment="Center"
+                     Margin="0,0,0,40"/>
+
+          <!-- Final score -->
+          <TextBlock Text="FINAL SCORE" Foreground="#FF00DDFF" FontFamily="Teko"
+                     FontSize="52" HorizontalAlignment="Center"
+                     Margin="0,0,0,10"/>
+          <TextBlock Text="{Binding finalScoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                     FontSize="96" FontWeight="Bold" HorizontalAlignment="Center"
+                     Margin="0,0,0,80"/>
+
+          <!-- Restart button -->
+          <Button Width="400" Height="100" HorizontalAlignment="Center"
+                  Command="{Binding events.onRestart}">
+            <Button.Template>
+              <ControlTemplate TargetType="Button">
+                <Border x:Name="btnBorder" Background="#FF00AACC" CornerRadius="16"
+                        BorderBrush="#FF00DDFF" BorderThickness="2">
+                  <TextBlock Text="RESTART" Foreground="#FFFFFFFF" FontFamily="Teko"
+                             FontSize="56" FontWeight="Bold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsPressed" Value="True">
+                    <Setter TargetName="btnBorder" Property="Background" Value="#FF007799"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Button.Template>
+          </Button>
+
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </noesis:LayoutScaler>
+</Component>

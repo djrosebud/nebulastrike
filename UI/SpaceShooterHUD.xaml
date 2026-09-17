@@ -1,0 +1,72 @@
+<!--
+  SpaceShooterHUD — ScreenSpace HUD for the space shooter.
+  Portrait build (1080x1920). Non-interactable (display-only).
+  renderOrderOffset = 90 (below game-loop screens at 100+).
+
+  Shows:
+  - Score (top-center, cyan on dark semi-transparent)
+  - Health bar (top-right, green bar on dark background)
+
+  Sci-fi font: Teko. FontSize >= 44.
+-->
+<Component
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:noesis="clr-namespace:NoesisGUIExtensions"
+  mc:Ignorable="d"
+  d:DesignWidth="1080"
+  d:DesignHeight="1920">
+  <noesis:LayoutScaler ReferenceResolution="1080,1920">
+    <Grid>
+      <Grid x:Name="ContentContainer" Margin="{Binding safeAreaMargin}">
+
+        <!-- Top HUD bar -->
+        <Grid VerticalAlignment="Top" Margin="0,420,0,0" Height="80">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+
+          <!-- Score (center) -->
+          <Border Grid.Column="1" Background="#99000000" CornerRadius="12"
+                  Padding="30,8,30,8" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+              <TextBlock Text="SCORE: " Foreground="#FF00DDFF" FontFamily="Teko"
+                         FontSize="48" FontWeight="Bold" VerticalAlignment="Center"/>
+              <TextBlock Text="{Binding scoreText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                         FontSize="52" FontWeight="Bold" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Health (right) -->
+          <Border Grid.Column="2" Background="#99000000" CornerRadius="12"
+                  Padding="20,8,20,8" HorizontalAlignment="Right" VerticalAlignment="Center"
+                  Margin="0,0,30,0">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="HP " Foreground="#FF00DDFF" FontFamily="Teko"
+                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"/>
+              <!-- Health bar background -->
+              <Border Width="160" Height="24" Background="#44FFFFFF" CornerRadius="6"
+                      VerticalAlignment="Center">
+                <!-- Health bar fill -->
+                <Border HorizontalAlignment="Left" CornerRadius="6"
+                        Width="{Binding healthBarWidth}" Height="24">
+                  <Border.Background>
+                    <SolidColorBrush Color="{Binding healthBarColor}"/>
+                  </Border.Background>
+                </Border>
+              </Border>
+              <TextBlock Text="{Binding healthText}" Foreground="#FFFFFFFF" FontFamily="Teko"
+                         FontSize="44" FontWeight="Bold" VerticalAlignment="Center"
+                         Margin="10,0,0,0"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+      </Grid>
+    </Grid>
+  </noesis:LayoutScaler>
+</Component>

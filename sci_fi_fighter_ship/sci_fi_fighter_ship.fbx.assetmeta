@@ -1,0 +1,151 @@
+{
+    "class": "horizon::AssetMetadata",
+    "data": {
+        "assetBuilderSettings": [
+            {
+                "class": "horizon::DccTemplateAssetBuilderSettings",
+                "data": {
+                    "collisionShape": "TriangleMesh",
+                    "disableRootNodeStringFixVersion": 1,
+                    "hiddenSceneItemsFixVersion": 1,
+                    "retainAllTransforms": false,
+                    "retainAllTransformsFixVersion": 2,
+                    "sceneCollisionLayer": "Layer2",
+                    "stableRootUuidFixVersion": 2,
+                    "target": "template",
+                    "templateRootName": "sci_fi_fighter_ship",
+                    "usePackageNameInIds": false
+                },
+                "version": 10009
+            },
+            {
+                "class": "horizon::dcc_asset_processing::DccSceneAssetBuilderSettings",
+                "data": {
+                    "disableAlwaysCreateDefaultMaterial": true,
+                    "enableAssetReferencing": true,
+                    "enableFbxUnitConversionAlways": true,
+                    "enableLegacyMaterialConversion": false,
+                    "globalScale": 1,
+                    "importAssetReferencingVersion": 1,
+                    "importErrorHandlingBehavior": 1,
+                    "importWindingOrderHandlingVersion": 1,
+                    "materialAssignmentHandlingVersion": 1,
+                    "materialConversionVersion": 1,
+                    "meshPivotMode": "None",
+                    "orientationCoordinateSystem": "YUp-RightHanded",
+                    "sceneBakingMethod": "UnbakedScene",
+                    "sourceCoordinateSystem": "RightUpBackward",
+                    "target": "",
+                    "upsideDownV": false,
+                    "useGlobalScale": true,
+                    "useNamedBasedLODs": false,
+                    "uvTransformHandlingVersion": 1
+                },
+                "version": 10015
+            },
+            {
+                "class": "horizon::renderer::tool::MeshAssetBuilderSettings",
+                "data": {
+                    "flipBitangent": false,
+                    "instanceGroupID": 0,
+                    "lightmapTextureTarget": "",
+                    "materialMapTarget": "materialMap.json",
+                    "meshSettingsList": [
+                        {
+                            "class": "horizon::renderer::tool::MeshAssetBuilderMeshSettings",
+                            "data": {
+                                "blendShapes": [],
+                                "cpuReadable": false,
+                                "cullFinalLod": false,
+                                "lightmapTextureTarget": "",
+                                "lodSelectionMetric": "Screen Space Ratio",
+                                "lodSettings": [
+                                    {
+                                        "class": "horizon::renderer::tool::LodSettings",
+                                        "data": {
+                                            "distanceRatio": 0.20000000298023225,
+                                            "reductionFactor": 1,
+                                            "simplifyParams": {
+                                                "class": "horizon::renderer::tool::SimplifyParams",
+                                                "data": {
+                                                    "allowCollapseAcrossSharpEdges": false,
+                                                    "allowCollapseSmallBoundaries": false,
+                                                    "allowRemoveSmallGeometry": false,
+                                                    "boneInfluenceCostScale": 1,
+                                                    "repairMesh": false,
+                                                    "scaleCostByTriangleArea": false,
+                                                    "smallGeometryMinFaceCount": 0,
+                                                    "smallGeometryRemovalThresholdRatio": 0,
+                                                    "weldEdges": false
+                                                }
+                                            },
+                                            "simplifyProfile": "Optimized",
+                                            "targetError": 0
+                                        }
+                                    }
+                                ],
+                                "materials": [
+                                    {
+                                        "ingestionId": "12597407529088653842",
+                                        "packageOrRemoteId": "16212686674365818645",
+                                        "targetId": "157013062"
+                                    }
+                                ],
+                                "nodePath": "/RootNode/mesh_node",
+                                "originalMaterials": [
+                                    {
+                                        "class": "horizon::AssetId",
+                                        "data": {
+                                            "ingestionId": "1700657645745975748",
+                                            "packageOrRemoteId": "0",
+                                            "targetId": "1604685701"
+                                        }
+                                    }
+                                ],
+                                "originallyExportedBlendShapesHash": 4238263450,
+                                "shouldParameterizeLightMapTexture": false,
+                                "vertexStrippingConfig": {
+                                    "class": "horizon::renderer::tool::VertexStrippingConfig",
+                                    "data": {
+                                        "normals": "Automatic",
+                                        "texcoord0": "Automatic",
+                                        "texcoord1": "Automatic",
+                                        "texcoord2": "Automatic",
+                                        "texcoord3": "Automatic",
+                                        "vertexColor0": "Automatic",
+                                        "vertexColor1": "Automatic"
+                                    }
+                                }
+                            },
+                            "version": 10005
+                        }
+                    ],
+                    "streamCount": 2,
+                    "streamable": true,
+                    "target": "mesh"
+                },
+                "version": 10004
+            },
+            {
+                "class": "horizon::physics::PhysXConvexMeshAssetBuilderSettings",
+                "data": {
+                    "allowedVolumeErrorPercentage": 1,
+                    "maxNumConvexHulls": 1,
+                    "maxNumVertsPerConvexHull": 128,
+                    "minEdgeLength": 2,
+                    "recursionDepth": 10,
+                    "target": "phys_convex_mesh",
+                    "voxelResolution": 400000
+                },
+                "version": 10001
+            }
+        ],
+        "docMeta": {
+            "class": "horizon::DocMetadata",
+            "data": {}
+        },
+        "id": "1700657645745975748",
+        "pipelineVersion": 1
+    },
+    "version": 1
+}
