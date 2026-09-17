@@ -33,6 +33,11 @@ import {CharacterGASComponent, DEAD_TAG, MAX_HEALTH_ATTR} from '../gas/Character
 import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
 import {CharacterStateMachine} from '../Character/State/CharacterStateMachine';
 import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
+import {EnemySpawner} from './EnemySpawner';
+import {
+  OnSpaceShooterVictoryEvent,
+  SpaceShooterScorePayload,
+} from './SpaceShooterEvents';
 
 const REF_W = 1080;
 const REF_H = 1920;
@@ -92,6 +97,18 @@ export class SpaceShooterGameOverManager extends Component {
     this.handleRestart();
   }
 
+  @subscribe(OnSpaceShooterVictoryEvent, {execution: ExecuteOn.Everywhere})
+  onVictory(payload: SpaceShooterScorePayload): void {
+    if (NetworkingService.get().isServerContext()) return;
+    if (this.gameOver) return;
+    this.gameOver = true;
+    // NOTE: the overlay XAML title is hardcoded "GAME OVER"; the human can
+    // rebind it in GenStudio, or we add a title binding in a later round.
+    this.viewModel.finalScoreText = String(payload.score);
+    if (this.customUi) this.customUi.isVisible = true;
+    console.log(`[SpaceShooterGameOverManager] SECTOR CLEARED! Score: ${payload.score}`);
+  }
+
   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
   onUpdate(payload: OnWorldUpdateEventPayload): void {
     if (NetworkingService.get().isServerContext()) return;
@@ -123,6 +140,9 @@ export class SpaceShooterGameOverManager extends Component {
 
     // Reset score (RPC routes to server owner)
     SpaceShooterScoreManager.instance?.resetScore();
+
+    // Reset waves (RPC routes to server owner): clears live enemies, restarts wave 1
+    EnemySpawner.instance?.resetWaves();
 
     // Revive player (client-owned, so client can modify directly)
     if (this.playerEntity && this.gasComp) {

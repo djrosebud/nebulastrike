@@ -1,0 +1,597 @@
+From 6281412ae16d43f973f9b4029cd819c32b37aa30 Mon Sep 17 00:00:00 2001
+From: djrosebud <djrosebud@users.noreply.github.com>
+Date: Wed, 16 Sep 2026 21:42:54 -0700
+Subject: [PATCH] round1-waves-boss
+
+- EnemySpawner: 3-wave state machine (6 drones / 10 tougher drones / boss)
+  with breather between waves; pauses while player is dead; RPC resetWaves
+  clears live enemies and restarts wave 1
+- EnemyShipController: per-wave HP, sine-drift weave, configureAsBoss()
+  (40 HP, 12-orb radial bursts, survives rams); drones die on ram as before
+- Events: OnSpaceShooterWaveChangedEvent, OnSpaceShooterVictoryEvent
+- GameOverManager: victory shows score overlay (Sector Cleared), restart
+  resets waves + score + player
+---
+ scripts/SpaceShooter/EnemyShipController.ts   | 149 ++++++++++++--
+ scripts/SpaceShooter/EnemySpawner.ts          | 188 ++++++++++++++++--
+ scripts/SpaceShooter/SpaceShooterEvents.ts    |  22 ++
+ .../SpaceShooterGameOverManager.ts            |  20 ++
+ 4 files changed, 345 insertions(+), 34 deletions(-)
+
+diff --git a/scripts/SpaceShooter/EnemyShipController.ts b/scripts/SpaceShooter/EnemyShipController.ts
+index 90847ee..85a025b 100644
+--- a/scripts/SpaceShooter/EnemyShipController.ts
++++ b/scripts/SpaceShooter/EnemyShipController.ts
+@@ -5,8 +5,12 @@
+  * Component Networking: Networked
+  * Component Ownership: Server (spawned by EnemySpawner on server)
+  *
+- * Moves toward the player, fires red projectiles periodically, and handles
+- * collision with player bullets (destroy + score) and player body (damage + destroy).
++ * Moves toward the player with a sine-drift weave, fires projectiles
++ * periodically, and handles collision with player bullets (HP damage +
++ * score) and player body (damage + destroy, except the boss).
++ *
++ * The wave-3 boss is the same template promoted via configureAsBoss():
++ * high HP, slower, radial orb bursts. The spawner scales it up 3x.
+  */
+ import {
+   component,
+@@ -38,10 +42,13 @@ import {Bullet} from '../Projectile/Bullet';
+ import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
+ import {SpaceShooterDamageReceiver} from './SpaceShooterDamageReceiver';
+ 
+-const ENEMY_SPEED = 8;
+-const FIRE_INTERVAL = 3;
+ const DAMAGE_TO_PLAYER = 20;
+ const DESPAWN_DISTANCE = 30;
++const BOSS_HP = 40;
++const BOSS_SPEED = 4.5;
++const BOSS_FIRE_INTERVAL = 2.5;
++const BOSS_RADIAL_COUNT = 12;
++const BOSS_SCORE = 1000;
+ 
+ @component({
+   description: 'Enemy ship AI. Attach to enemy ship template root.',
+@@ -50,10 +57,27 @@ export class EnemyShipController extends Component {
+   @property()
+   enemyProjectileTemplate: Maybe<TemplateAsset> = null;
+ 
++  /** Tuned per-wave by EnemySpawner right after spawn. */
++  @property()
++  hitPoints: number = 1;
++  @property()
++  moveSpeed: number = 8;
++  @property()
++  fireInterval: number = 3;
++  @property()
++  scoreValue: number = 100;
++  @property()
++  driftAmplitude: number = 2.0;
++  @property()
++  driftFrequency: number = 1.5;
++
+   private transform: Maybe<TransformComponent> = null;
+   private playerEntity: Maybe<Entity> = null;
+   private lastFireTime: number = 0;
+   private destroyed: boolean = false;
++  private driftPhase: number = 0;
++  private isBoss: boolean = false;
++  private radialCount: number = 0;
+ 
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Everywhere})
+   onStart(): void {
+@@ -64,9 +88,25 @@ export class EnemyShipController extends Component {
+       this.playerEntity = players[0];
+     }
+     this.lastFireTime = WorldService.get().getWorldTime();
++    this.driftPhase = Math.random() * Math.PI * 2;
+     console.log('[EnemyShipController] Initialized on server');
+   }
+ 
++  /**
++   * Promote this drone into the wave-3 boss. Called by EnemySpawner
++   * immediately after spawn; the spawner also scales the entity up.
++   */
++  public configureAsBoss(): void {
++    this.isBoss = true;
++    this.hitPoints = BOSS_HP;
++    this.moveSpeed = BOSS_SPEED;
++    this.fireInterval = BOSS_FIRE_INTERVAL;
++    this.scoreValue = BOSS_SCORE;
++    this.radialCount = BOSS_RADIAL_COUNT;
++    this.driftAmplitude = 1.0;
++    console.log('[EnemyShipController] Configured as BOSS');
++  }
++
+   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
+   onUpdate(payload: OnWorldUpdateEventPayload): void {
+     if (!NetworkingService.get().isServerContext()) return;
+@@ -86,16 +126,28 @@ export class EnemyShipController extends Component {
+     const pos = this.transform.worldPosition;
+     const playerPos = playerTransform.worldPosition;
+ 
+-    // Move toward player
++    // Move toward player with a horizontal sine-drift weave
+     const dirToPlayer = playerPos.sub(pos);
+     const dist = dirToPlayer.magnitude();
+ 
+     if (dist > 1) {
+       const dir = dirToPlayer.normalize();
++      this.driftPhase += dt * this.driftFrequency;
++      // Perpendicular to travel direction (horizontal): cross(dir, up) = (-dir.z, 0, dir.x)
++      const px = -dir.z;
++      const pz = dir.x;
++      const perpLen = Math.sqrt(px * px + pz * pz);
++      let driftX = 0;
++      let driftZ = 0;
++      if (perpLen > 0.0001) {
++        const w = (Math.sin(this.driftPhase) * this.driftAmplitude) / perpLen;
++        driftX = px * w;
++        driftZ = pz * w;
++      }
+       this.transform.worldPosition = new Vec3(
+-        pos.x + dir.x * ENEMY_SPEED * dt,
+-        pos.y + dir.y * ENEMY_SPEED * dt,
+-        pos.z + dir.z * ENEMY_SPEED * dt,
++        pos.x + (dir.x * this.moveSpeed + driftX) * dt,
++        pos.y + dir.y * this.moveSpeed * dt,
++        pos.z + (dir.z * this.moveSpeed + driftZ) * dt,
+       );
+       this.transform.worldRotation = Quaternion.lookRotation(dir, Vec3.up);
+     }
+@@ -107,11 +159,15 @@ export class EnemyShipController extends Component {
+       return;
+     }
+ 
+-    // Periodic firing
++    // Periodic firing: aimed shot, or radial burst for the boss
+     const now = WorldService.get().getWorldTime();
+-    if (now - this.lastFireTime >= FIRE_INTERVAL && this.enemyProjectileTemplate) {
++    if (now - this.lastFireTime >= this.fireInterval && this.enemyProjectileTemplate) {
+       this.lastFireTime = now;
+-      this.fireAtPlayer(playerPos);
++      if (this.radialCount > 0) {
++        void this.fireRadial(playerPos);
++      } else {
++        void this.fireAtPlayer(playerPos);
++      }
+     }
+   }
+ 
+@@ -125,19 +181,31 @@ export class EnemyShipController extends Component {
+ 
+     // Check if hit by player bullet (walk parent chain)
+     if (this.findInChain(otherEntity, (e) => e.getComponent(Bullet) != null)) {
+-      console.log('[EnemyShipController] Hit by player bullet!');
+-      this.destroyed = true;
+-      SpaceShooterScoreManager.instance?.addScore(100);
+-      this.entity.destroy();
++      this.hitPoints -= 1;
++      if (this.hitPoints <= 0) {
++        console.log(
++          `[EnemyShipController] ${this.isBoss ? 'BOSS' : 'Drone'} destroyed! +${this.scoreValue}`,
++        );
++        this.destroyed = true;
++        SpaceShooterScoreManager.instance?.addScore(this.scoreValue);
++        this.entity.destroy();
++      } else {
++        console.log(
++          `[EnemyShipController] Hit! HP remaining: ${this.hitPoints}`,
++        );
++      }
+       return;
+     }
+ 
+     // Check if collided with player
+     if (this.findInChain(otherEntity, (e) => e.getComponent(BasePlayerComponent) != null)) {
+       console.log('[EnemyShipController] Collided with player!');
+-      this.destroyed = true;
+       this.dealDamageToPlayer(otherEntity);
+-      this.entity.destroy();
++      // Drones die on ramming; the boss plows through
++      if (!this.isBoss) {
++        this.destroyed = true;
++        this.entity.destroy();
++      }
+     }
+   }
+ 
+@@ -160,6 +228,53 @@ export class EnemyShipController extends Component {
+     }
+   }
+ 
++  private async fireRadial(playerPos: Vec3): Promise<void> {
++    if (!this.transform || !this.enemyProjectileTemplate) return;
++    const pos = this.transform.worldPosition;
++    const dir = playerPos.sub(pos).normalize();
++
++    // Orthonormal basis perpendicular to the aim direction
++    let ux = -dir.z;
++    let uy = 0;
++    let uz = dir.x;
++    const ulen = Math.sqrt(ux * ux + uz * uz);
++    if (ulen < 0.0001) {
++      ux = 1;
++      uy = 0;
++      uz = 0;
++    } else {
++      ux /= ulen;
++      uz /= ulen;
++    }
++    // v = dir x u
++    const vx = dir.y * uz - dir.z * uy;
++    const vy = dir.z * ux - dir.x * uz;
++    const vz = dir.x * uy - dir.y * ux;
++
++    for (let i = 0; i < this.radialCount; i++) {
++      const a = (i / this.radialCount) * Math.PI * 2;
++      const d = new Vec3(
++        ux * Math.cos(a) + vx * Math.sin(a),
++        uy * Math.cos(a) + vy * Math.sin(a),
++        uz * Math.cos(a) + vz * Math.sin(a),
++      ).normalize();
++      const spawnPos = pos.add(d.mul(4));
++      const rotation = Quaternion.lookRotation(d, Vec3.up);
++      try {
++        await WorldService.get().spawnTemplate({
++          templateAsset: this.enemyProjectileTemplate,
++          networkMode: NetworkMode.Networked,
++          position: spawnPos,
++          rotation: rotation,
++        });
++      } catch (err) {
++        console.error('[EnemyShipController] Boss radial fire failed:', err);
++        return;
++      }
++    }
++    console.log(`[EnemyShipController] Boss radial burst x${this.radialCount}`);
++  }
++
+   private findInChain(entity: Entity, predicate: (e: Entity) => boolean): boolean {
+     let current: Entity | null = entity;
+     while (current) {
+diff --git a/scripts/SpaceShooter/EnemySpawner.ts b/scripts/SpaceShooter/EnemySpawner.ts
+index e7719fc..6fc5fd5 100644
+--- a/scripts/SpaceShooter/EnemySpawner.ts
++++ b/scripts/SpaceShooter/EnemySpawner.ts
+@@ -1,18 +1,26 @@
+ /**
+- * EnemySpawner — Server-side enemy spawner.
++ * EnemySpawner — Server-side wave-based enemy spawner.
+  *
+  * Component Attachment: Scene entity (server-owned)
+  * Component Networking: Networked
+  * Component Ownership: Server
+  *
+- * Spawns enemy ships at regular intervals at random X/Y positions ahead
+- * of the player on the -Z axis.
++ * Runs 3 waves: two drone waves with escalating count/HP/speed, then a
++ * single large boss (same enemy template, promoted via
++ * EnemyShipController.configureAsBoss() and scaled 3x). A wave is cleared
++ * when every spawned enemy is destroyed; after a short breather the next
++ * wave begins. Clearing wave 3 broadcasts victory ("Sector Cleared").
++ *
++ * Spawning pauses while the player is dead. resetWaves() (RPC, called by
++ * the game-over manager on restart) clears live enemies and restarts
++ * wave 1.
+  */
+ import {
+   component,
+   Component,
+   subscribe,
+   OnEntityStartEvent,
++  OnEntityDestroyEvent,
+   OnWorldUpdateEvent,
+   OnPlayerCreateEvent,
+   OnPlayerCreateEventPayload,
+@@ -26,31 +34,76 @@ import {
+   PlayerService,
+   TemplateAsset,
+   property,
++  rpc,
+ } from 'meta/worlds';
+ import type {Entity, Maybe, OnWorldUpdateEventPayload} from 'meta/worlds';
++import {EnemyShipController} from './EnemyShipController';
++import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
++import {CharacterGASComponent} from '../gas/CharacterGASComponent';
++import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
++import {
++  OnSpaceShooterWaveChangedEvent,
++  OnSpaceShooterVictoryEvent,
++  SpaceShooterWavePayload,
++  SpaceShooterScorePayload,
++} from './SpaceShooterEvents';
++
++interface WaveDef {
++  count: number;
++  hp: number;
++  speed: number;
++  fireInterval: number;
++  spawnInterval: number;
++  boss: boolean;
++}
+ 
+-const SPAWN_INTERVAL = 2.5;
++const WAVES: WaveDef[] = [
++  {count: 6, hp: 1, speed: 8, fireInterval: 3.0, spawnInterval: 2.2, boss: false},
++  {count: 10, hp: 2, speed: 10, fireInterval: 2.4, spawnInterval: 1.6, boss: false},
++  {count: 1, hp: 40, speed: 4.5, fireInterval: 2.5, spawnInterval: 1.0, boss: true},
++];
++
++const BREATHER_SECONDS = 4;
++const BOSS_SCALE = 3;
+ const SPAWN_AHEAD_Z = -50;
+ const SPAWN_RANGE_X = 12;
+ const SPAWN_RANGE_Y = 8;
+ const SPAWN_MIN_Y = 2;
+ 
++type SpawnerState = 'spawning' | 'breather' | 'done';
++
+ @component({
+-  description: 'Server-side enemy spawner. Attach to a scene entity.',
++  description: 'Wave-based enemy spawner: 2 drone waves then a boss. Attach to a scene entity.',
+ })
+ export class EnemySpawner extends Component {
++  public static instance: Maybe<EnemySpawner> = null;
++
+   @property()
+   enemyTemplate: Maybe<TemplateAsset> = null;
+ 
+-  private lastSpawnTime: number = 0;
++  private waveIndex: number = -1;
++  private spawnedThisWave: number = 0;
++  private pendingSpawns: number = 0;
++  private generation: number = 0;
++  private tracked: Entity[] = [];
++  private state: SpawnerState = 'spawning';
++  private nextActionTime: number = 0;
+   private playerEntity: Maybe<Entity> = null;
+ 
+   @subscribe(OnEntityStartEvent, {execution: ExecuteOn.Everywhere})
+   onStart(): void {
++    EnemySpawner.instance = this;
+     if (!NetworkingService.get().isServerContext()) return;
+-    this.lastSpawnTime = WorldService.get().getWorldTime();
+     this.refreshPlayer();
+-    console.log('[EnemySpawner] Initialized on server');
++    this.beginWave(0);
++    console.log('[EnemySpawner] Wave spawner initialized on server');
++  }
++
++  @subscribe(OnEntityDestroyEvent, {execution: ExecuteOn.Everywhere})
++  onDestroy(): void {
++    if (EnemySpawner.instance === this) {
++      EnemySpawner.instance = null;
++    }
+   }
+ 
+   @subscribe(OnPlayerCreateEvent, {execution: ExecuteOn.Everywhere})
+@@ -63,25 +116,108 @@ export class EnemySpawner extends Component {
+   onUpdate(payload: OnWorldUpdateEventPayload): void {
+     if (!NetworkingService.get().isServerContext()) return;
+     if (!this.enemyTemplate) return;
++    if (this.waveIndex < 0 || this.waveIndex >= WAVES.length) return;
+ 
+-    if (!this.playerEntity || this.playerEntity.isDestroyed()) {
+-      this.refreshPlayer();
+-      if (!this.playerEntity) return;
++    // Prune destroyed enemies from tracking
++    if (this.tracked.length > 0) {
++      this.tracked = this.tracked.filter((e) => !e.isDestroyed());
+     }
+ 
++    // Pause the wave machine while the player is dead
++    if (!this.isPlayerAlive()) return;
++
++    const wave = WAVES[this.waveIndex];
+     const now = WorldService.get().getWorldTime();
+-    if (now - this.lastSpawnTime >= SPAWN_INTERVAL) {
+-      this.lastSpawnTime = now;
+-      this.spawnEnemy();
++
++    if (this.state === 'spawning') {
++      if (this.spawnedThisWave < wave.count && now >= this.nextActionTime) {
++        this.nextActionTime = now + wave.spawnInterval;
++        this.spawnedThisWave++;
++        this.pendingSpawns++;
++        void this.spawnEnemy(wave, this.generation)
++          .finally(() => {
++            this.pendingSpawns--;
++          })
++          .catch((err) => console.error('[EnemySpawner] spawn failed:', err));
++      } else if (
++        this.spawnedThisWave >= wave.count &&
++        this.pendingSpawns === 0 &&
++        this.tracked.length === 0
++      ) {
++        this.onWaveCleared();
++      }
++    } else if (this.state === 'breather') {
++      if (now >= this.nextActionTime) {
++        this.beginWave(this.waveIndex + 1);
++      }
+     }
+   }
+ 
++  /**
++   * Reset for a new run: destroy live enemies and restart wave 1.
++   * Called via RPC from the game-over manager's restart flow.
++   */
++  @rpc()
++  public resetWaves(): void {
++    if (!NetworkingService.get().isServerContext()) return;
++    for (const e of this.tracked) {
++      if (!e.isDestroyed()) e.destroy();
++    }
++    this.tracked = [];
++    console.log('[EnemySpawner] Waves reset for new run');
++    this.beginWave(0);
++  }
++
++  private onWaveCleared(): void {
++    console.log(`[EnemySpawner] Wave ${this.waveIndex + 1} cleared!`);
++    if (this.waveIndex >= WAVES.length - 1) {
++      this.state = 'done';
++      const score = SpaceShooterScoreManager.instance?.score ?? 0;
++      this.entity.sendEventToEveryone(
++        OnSpaceShooterVictoryEvent,
++        new SpaceShooterScorePayload(score),
++      );
++      console.log('[EnemySpawner] SECTOR CLEARED — victory!');
++    } else {
++      this.state = 'breather';
++      this.nextActionTime = WorldService.get().getWorldTime() + BREATHER_SECONDS;
++      console.log(`[EnemySpawner] Breather — next wave in ${BREATHER_SECONDS}s`);
++    }
++  }
++
++  private beginWave(index: number): void {
++    this.waveIndex = index;
++    this.spawnedThisWave = 0;
++    this.generation++;
++    this.state = 'spawning';
++    this.nextActionTime = WorldService.get().getWorldTime() + 1.0;
++    const wave = WAVES[index];
++    console.log(
++      `[EnemySpawner] Wave ${index + 1}/${WAVES.length} incoming ` +
++        `(${wave.boss ? 'BOSS' : wave.count + ' drones'})`,
++    );
++    this.entity.sendEventToEveryone(
++      OnSpaceShooterWaveChangedEvent,
++      new SpaceShooterWavePayload(index + 1, WAVES.length),
++    );
++  }
++
++  private isPlayerAlive(): boolean {
++    if (!this.playerEntity || this.playerEntity.isDestroyed()) {
++      this.refreshPlayer();
++      if (!this.playerEntity) return false;
++    }
++    const gas = this.playerEntity.getComponent(CharacterGASComponent);
++    if (!gas) return true;
++    return (gas.getAttributeValue(HEALTH_ATTR) ?? 1) > 0;
++  }
++
+   private refreshPlayer(): void {
+     const players = PlayerService.get().getAllPlayers();
+     this.playerEntity = players.length > 0 ? players[0] : null;
+   }
+ 
+-  private async spawnEnemy(): Promise<void> {
++  private async spawnEnemy(wave: WaveDef, generation: number): Promise<void> {
+     if (!this.enemyTemplate || !this.playerEntity) return;
+ 
+     const playerPos = this.playerEntity.getComponent(TransformComponent)?.worldPosition;
+@@ -95,13 +231,31 @@ export class EnemySpawner extends Component {
+     const rotation = Quaternion.lookRotation(dirToPlayer, Vec3.up);
+ 
+     try {
+-      await WorldService.get().spawnTemplate({
++      const entity = await WorldService.get().spawnTemplate({
+         templateAsset: this.enemyTemplate,
+         networkMode: NetworkMode.Networked,
+         position: spawnPos,
+         rotation: rotation,
+       });
+-      console.log(`[EnemySpawner] Spawned enemy at (${randomX.toFixed(1)}, ${randomY.toFixed(1)}, ${spawnZ.toFixed(1)})`);
++      if (!entity || entity.isDestroyed()) return;
++      // Drop late arrivals from a previous wave/run (e.g. after resetWaves)
++      if (generation !== this.generation) {
++        entity.destroy();
++        return;
++      }
++
++      const ctrl = entity.getComponent(EnemyShipController);
++      if (wave.boss) {
++        ctrl?.configureAsBoss();
++        const t = entity.getComponent(TransformComponent);
++        if (t) t.worldScale = new Vec3(BOSS_SCALE, BOSS_SCALE, BOSS_SCALE);
++        console.log('[EnemySpawner] BOSS spawned!');
++      } else if (ctrl) {
++        ctrl.hitPoints = wave.hp;
++        ctrl.moveSpeed = wave.speed;
++        ctrl.fireInterval = wave.fireInterval;
++      }
++      this.tracked.push(entity);
+     } catch (err) {
+       console.error('[EnemySpawner] Failed to spawn enemy:', err);
+     }
+diff --git a/scripts/SpaceShooter/SpaceShooterEvents.ts b/scripts/SpaceShooter/SpaceShooterEvents.ts
+index 633afd4..ecfd78a 100644
+--- a/scripts/SpaceShooter/SpaceShooterEvents.ts
++++ b/scripts/SpaceShooter/SpaceShooterEvents.ts
+@@ -16,3 +16,25 @@ export const OnSpaceShooterScoreChangedEvent = new NetworkEvent(
+   'OnSpaceShooterScoreChangedEvent',
+   SpaceShooterScorePayload,
+ );
++
++@serializable()
++export class SpaceShooterWavePayload {
++  @property()
++  readonly wave: number = 0;
++  @property()
++  readonly totalWaves: number = 0;
++  constructor(wave: number = 0, totalWaves: number = 0) {
++    this.wave = wave;
++    this.totalWaves = totalWaves;
++  }
++}
++
++export const OnSpaceShooterWaveChangedEvent = new NetworkEvent(
++  'OnSpaceShooterWaveChangedEvent',
++  SpaceShooterWavePayload,
++);
++
++export const OnSpaceShooterVictoryEvent = new NetworkEvent(
++  'OnSpaceShooterVictoryEvent',
++  SpaceShooterScorePayload,
++);
+diff --git a/scripts/SpaceShooter/SpaceShooterGameOverManager.ts b/scripts/SpaceShooter/SpaceShooterGameOverManager.ts
+index ebc7109..c30b948 100644
+--- a/scripts/SpaceShooter/SpaceShooterGameOverManager.ts
++++ b/scripts/SpaceShooter/SpaceShooterGameOverManager.ts
+@@ -33,6 +33,11 @@ import {CharacterGASComponent, DEAD_TAG, MAX_HEALTH_ATTR} from '../gas/Character
+ import {HEALTH_ATTR} from '../gas/weapons/core/WeaponSetup';
+ import {CharacterStateMachine} from '../Character/State/CharacterStateMachine';
+ import {SpaceShooterScoreManager} from './SpaceShooterScoreManager';
++import {EnemySpawner} from './EnemySpawner';
++import {
++  OnSpaceShooterVictoryEvent,
++  SpaceShooterScorePayload,
++} from './SpaceShooterEvents';
+ 
+ const REF_W = 1080;
+ const REF_H = 1920;
+@@ -92,6 +97,18 @@ export class SpaceShooterGameOverManager extends Component {
+     this.handleRestart();
+   }
+ 
++  @subscribe(OnSpaceShooterVictoryEvent, {execution: ExecuteOn.Everywhere})
++  onVictory(payload: SpaceShooterScorePayload): void {
++    if (NetworkingService.get().isServerContext()) return;
++    if (this.gameOver) return;
++    this.gameOver = true;
++    // NOTE: the overlay XAML title is hardcoded "GAME OVER"; the human can
++    // rebind it in GenStudio, or we add a title binding in a later round.
++    this.viewModel.finalScoreText = String(payload.score);
++    if (this.customUi) this.customUi.isVisible = true;
++    console.log(`[SpaceShooterGameOverManager] SECTOR CLEARED! Score: ${payload.score}`);
++  }
++
+   @subscribe(OnWorldUpdateEvent, {execution: ExecuteOn.Everywhere})
+   onUpdate(payload: OnWorldUpdateEventPayload): void {
+     if (NetworkingService.get().isServerContext()) return;
+@@ -124,6 +141,9 @@ export class SpaceShooterGameOverManager extends Component {
+     // Reset score (RPC routes to server owner)
+     SpaceShooterScoreManager.instance?.resetScore();
+ 
++    // Reset waves (RPC routes to server owner): clears live enemies, restarts wave 1
++    EnemySpawner.instance?.resetWaves();
++
+     // Revive player (client-owned, so client can modify directly)
+     if (this.playerEntity && this.gasComp) {
+       const maxHealth = this.gasComp.getAttributeValue(MAX_HEALTH_ATTR) ?? 100;
+-- 
+2.43.0
+
